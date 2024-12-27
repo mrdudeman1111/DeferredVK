@@ -1,0 +1,3 @@
+C:\mingw64\bin\cmake.exe -E rm -f CMakeFiles\VkScene.dir/objects.a
+C:\mingw64\bin\ar.exe qc CMakeFiles\VkScene.dir/objects.a @CMakeFiles\VkScene.dir\objects1.rsp
+C:\mingw64\bin\g++.exe -g -Wl,--whole-archive CMakeFiles\VkScene.dir/objects.a -Wl,--no-whole-archive -o VkScene.exe -Wl,--out-implib,libVkScene.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\VkScene.dir\linkLibs.rsp
