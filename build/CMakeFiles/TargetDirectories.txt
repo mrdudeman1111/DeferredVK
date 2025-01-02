@@ -1,3 +1,7 @@
 D:/Repos/C++Replication/build/CMakeFiles/VkScene.dir
 D:/Repos/C++Replication/build/CMakeFiles/edit_cache.dir
 D:/Repos/C++Replication/build/CMakeFiles/rebuild_cache.dir
+D:/Repos/C++Replication/build/ThirdParty/CMakeFiles/edit_cache.dir
+D:/Repos/C++Replication/build/ThirdParty/CMakeFiles/rebuild_cache.dir
+D:/Repos/C++Replication/build/ThirdParty/VulkanMemoryAllocator/CMakeFiles/edit_cache.dir
+D:/Repos/C++Replication/build/ThirdParty/VulkanMemoryAllocator/CMakeFiles/rebuild_cache.dir

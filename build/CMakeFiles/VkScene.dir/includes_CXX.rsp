@@ -1,1 +1,1 @@
--IC:/VulkanSDK/1.3.296.0/Include -ID:/Repos/C++Replication/include
+-ID:/Repos/C++Replication/include -I"D:/Repos/C++Replication/build/ThirdParty/SDL/include-revision" -ID:/Repos/C++Replication/ThirdParty/SDL/include -isystem C:/VulkanSDK/1.3.296.0/Include

@@ -1,1 +1,1 @@
-  -LC:/VulkanSDK/1.3.296.0/Lib  -LD:/Repos/C++Replication/build  -lvulkan-1 -lSDL3 -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 
+ "C:/VulkanSDK/1.3.296.0/Lib/vulkan-1.lib" ThirdParty/SDL/libSDL3.dll.a -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 

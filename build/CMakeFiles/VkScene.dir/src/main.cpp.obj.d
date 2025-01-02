@@ -149,9 +149,9 @@ CMakeFiles/VkScene.dir/src/main.cpp.obj: \
  C:/mingw64/include/c++/14.2.0/bits/stl_vector.h \
  C:/mingw64/include/c++/14.2.0/bits/stl_bvector.h \
  C:/mingw64/include/c++/14.2.0/bits/vector.tcc \
- D:/Repos/C++Replication/include/SDL3/SDL.h \
- D:/Repos/C++Replication/include/SDL3/SDL_stdinc.h \
- D:/Repos/C++Replication/include/SDL3/SDL_platform_defines.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_stdinc.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_platform_defines.h \
  C:/mingw64/lib/gcc/x86_64-w64-mingw32/14.2.0/include/stdarg.h \
  C:/mingw64/x86_64-w64-mingw32/include/stdarg.h \
  C:/mingw64/x86_64-w64-mingw32/include/_mingw_stdarg.h \
@@ -159,62 +159,63 @@ CMakeFiles/VkScene.dir/src/main.cpp.obj: \
  C:/mingw64/x86_64-w64-mingw32/include/stdint.h \
  C:/mingw64/x86_64-w64-mingw32/include/string.h \
  C:/mingw64/x86_64-w64-mingw32/include/sec_api/string_s.h \
- D:/Repos/C++Replication/include/SDL3/SDL_begin_code.h \
- D:/Repos/C++Replication/include/SDL3/SDL_close_code.h \
- D:/Repos/C++Replication/include/SDL3/SDL_assert.h \
- D:/Repos/C++Replication/include/SDL3/SDL_asyncio.h \
- D:/Repos/C++Replication/include/SDL3/SDL_atomic.h \
- D:/Repos/C++Replication/include/SDL3/SDL_audio.h \
- D:/Repos/C++Replication/include/SDL3/SDL_endian.h \
- D:/Repos/C++Replication/include/SDL3/SDL_error.h \
- D:/Repos/C++Replication/include/SDL3/SDL_mutex.h \
- D:/Repos/C++Replication/include/SDL3/SDL_thread.h \
- D:/Repos/C++Replication/include/SDL3/SDL_properties.h \
- D:/Repos/C++Replication/include/SDL3/SDL_iostream.h \
- D:/Repos/C++Replication/include/SDL3/SDL_bits.h \
- D:/Repos/C++Replication/include/SDL3/SDL_blendmode.h \
- D:/Repos/C++Replication/include/SDL3/SDL_camera.h \
- D:/Repos/C++Replication/include/SDL3/SDL_pixels.h \
- D:/Repos/C++Replication/include/SDL3/SDL_surface.h \
- D:/Repos/C++Replication/include/SDL3/SDL_rect.h \
- D:/Repos/C++Replication/include/SDL3/SDL_clipboard.h \
- D:/Repos/C++Replication/include/SDL3/SDL_cpuinfo.h \
- D:/Repos/C++Replication/include/SDL3/SDL_dialog.h \
- D:/Repos/C++Replication/include/SDL3/SDL_video.h \
- D:/Repos/C++Replication/include/SDL3/SDL_events.h \
- D:/Repos/C++Replication/include/SDL3/SDL_gamepad.h \
- D:/Repos/C++Replication/include/SDL3/SDL_guid.h \
- D:/Repos/C++Replication/include/SDL3/SDL_joystick.h \
- D:/Repos/C++Replication/include/SDL3/SDL_power.h \
- D:/Repos/C++Replication/include/SDL3/SDL_sensor.h \
- D:/Repos/C++Replication/include/SDL3/SDL_keyboard.h \
- D:/Repos/C++Replication/include/SDL3/SDL_keycode.h \
- D:/Repos/C++Replication/include/SDL3/SDL_scancode.h \
- D:/Repos/C++Replication/include/SDL3/SDL_mouse.h \
- D:/Repos/C++Replication/include/SDL3/SDL_pen.h \
- D:/Repos/C++Replication/include/SDL3/SDL_touch.h \
- D:/Repos/C++Replication/include/SDL3/SDL_filesystem.h \
- D:/Repos/C++Replication/include/SDL3/SDL_gpu.h \
- D:/Repos/C++Replication/include/SDL3/SDL_haptic.h \
- D:/Repos/C++Replication/include/SDL3/SDL_hidapi.h \
- D:/Repos/C++Replication/include/SDL3/SDL_hints.h \
- D:/Repos/C++Replication/include/SDL3/SDL_init.h \
- D:/Repos/C++Replication/include/SDL3/SDL_loadso.h \
- D:/Repos/C++Replication/include/SDL3/SDL_locale.h \
- D:/Repos/C++Replication/include/SDL3/SDL_log.h \
- D:/Repos/C++Replication/include/SDL3/SDL_messagebox.h \
- D:/Repos/C++Replication/include/SDL3/SDL_metal.h \
- D:/Repos/C++Replication/include/SDL3/SDL_misc.h \
- D:/Repos/C++Replication/include/SDL3/SDL_platform.h \
- D:/Repos/C++Replication/include/SDL3/SDL_process.h \
- D:/Repos/C++Replication/include/SDL3/SDL_render.h \
- D:/Repos/C++Replication/include/SDL3/SDL_storage.h \
- D:/Repos/C++Replication/include/SDL3/SDL_system.h \
- D:/Repos/C++Replication/include/SDL3/SDL_time.h \
- D:/Repos/C++Replication/include/SDL3/SDL_timer.h \
- D:/Repos/C++Replication/include/SDL3/SDL_version.h \
- D:/Repos/C++Replication/include/SDL3/SDL_oldnames.h \
- D:/Repos/C++Replication/include/SDL3/SDL_vulkan.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_begin_code.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_close_code.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_assert.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_asyncio.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_atomic.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_audio.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_endian.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_error.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_mutex.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_thread.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_properties.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_iostream.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_bits.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_blendmode.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_camera.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_pixels.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_surface.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_rect.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_clipboard.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_cpuinfo.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_dialog.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_video.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_events.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_gamepad.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_guid.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_joystick.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_power.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_sensor.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_keyboard.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_keycode.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_scancode.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_mouse.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_pen.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_touch.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_filesystem.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_gpu.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_haptic.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_hidapi.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_hints.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_init.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_loadso.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_locale.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_log.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_messagebox.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_metal.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_misc.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_platform.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_process.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_render.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_storage.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_system.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_time.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_timer.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_tray.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_version.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_oldnames.h \
+ D:/Repos/C++Replication/ThirdParty/SDL/include/SDL3/SDL_vulkan.h \
  C:/VulkanSDK/1.3.296.0/Include/vulkan/vulkan.h \
  C:/VulkanSDK/1.3.296.0/Include/vulkan/vk_platform.h \
  C:/VulkanSDK/1.3.296.0/Include/vulkan/vulkan_core.h \

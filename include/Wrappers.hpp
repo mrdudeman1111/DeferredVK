@@ -9,8 +9,6 @@
 #include "vulkan/vulkan.h"
 #include "glm/glm.hpp"
 
-#define PAGE_SIZE 16777216
-
 namespace Wrappers
 {
     struct PipeLocation
@@ -50,6 +48,20 @@ namespace Wrappers
 
         class CommandBuffer
         {
+        public:
+            void Start();
+            void Stop();
+
+            operator VkCommandBuffer()
+            {
+                return cmdBuffer;
+            }
+            operator VkCommandBuffer*()
+            {
+                return &cmdBuffer;
+            }
+
+        private:
             VkCommandBuffer cmdBuffer;
         };
 
@@ -70,9 +82,11 @@ namespace Wrappers
             DescriptorLayout* DescLayout;
         };
 
+        // Wraps FrameBufferInformation
         class FrameBuffer
         {
-            void AddBuffer(VkImageCreateInfo ImgInf);
+        public:
+            void AddBuffer(VkImageCreateInfo ImgCI);
             void AddBuffer(VkImageView ImgView);
             void Bake(VkRenderPass Renderpass);
 
@@ -90,7 +104,7 @@ namespace Wrappers
         class DescriptorPool
         {
             void bake();
-            Resources::DescriptorSet CreateSet(Resources::DescriptorLayout);
+            Resources::DescriptorSet CreateSet(Resources::DescriptorLayout Layout);
 
             VkDescriptorPool DescPool;
 
@@ -111,13 +125,15 @@ namespace Wrappers
 
     struct Subpass
     {
+        void AddAttachment(uint32_t AttIdx, VkImageLayout ImgLayout);
+
         VkSubpassDescription SubpassDesc;
         std::vector<VkAttachmentReference> Attachments;
     };
 
     struct RenderPass
     {
-        void AddAttachmentDesc(VkAttachmentDescription Attachment);
+        void AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT);
 
         void Bake();
 
@@ -199,17 +215,7 @@ namespace Wrappers
         VkQueue GraphicsQueue;
         VkQueue ComputeQueue;
         
-        /* creation functions */
 
-            VkResult CreateBuffer(VkBuffer& Buffer, size_t Size, VkBufferUsageFlags Usage);
-            VkResult CreateImage(VkImage& Image, VkFormat Format, VkExtent2D Size, VkImageUsageFlags Usage, VkSampleCountFlagBits SampleCount = VK_SAMPLE_COUNT_1_BIT);
-
-            VkResult CreateView(VkImageView& View, VkImage& Image, VkFormat Format);
-
-            // virtual void CreateTexture(Resources::Image& Texture, VkFormat Format, VkExtent2D Size) = 0;
-
-            void* Map(Resources::Allocation* pAllocation);
-            void Unmap(Resources::Allocation* pAllocation);
         private:
             struct MemoryHeap
             {
@@ -227,6 +233,9 @@ namespace Wrappers
 
     struct Window
     {
+        VkExtent2D Resolution;
+        VkSurfaceFormatKHR SurfFormat;
+
         SDL_Window* sdlWindow;
         VkSurfaceKHR Surface;
         VkSwapchainKHR Swapchain;
@@ -238,13 +247,6 @@ namespace Wrappers
     public:
         virtual VkResult Allocate(Resources::Image& Image, Resources::Allocation* pAllocation, bool bVisible = true) = 0;
         virtual VkResult Allocate(Resources::Buffer& Buffer, Resources::Allocation* pAllocation, bool bVisible = true) = 0;
-
-        virtual VkResult CreateBuffer(VkBuffer& Buffer, size_t Size, VkBufferUsageFlags Usage) = 0;
-        virtual VkResult CreateImage(VkImage& Image, VkFormat Format, VkExtent2D Size, VkImageUsageFlags Usage, VkSampleCountFlagBits SampleCount = VK_SAMPLE_COUNT_1_BIT) = 0;
-
-        virtual VkResult CreateView(VkImageView& View, VkImage& Image, VkFormat Format) = 0;
-
-        // virtual void CreateTexture(Resources::Image& Texture, VkFormat Format, VkExtent2D Size) = 0;
 
         virtual void* Map(Resources::Allocation* pAllocation) = 0;
         virtual void Unmap(Resources::Allocation* pAllocation) = 0;

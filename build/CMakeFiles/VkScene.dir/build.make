@@ -126,6 +126,9 @@ VkScene.exe: CMakeFiles/VkScene.dir/src/Framework.cpp.obj
 VkScene.exe: CMakeFiles/VkScene.dir/src/Wrappers.cpp.obj
 VkScene.exe: CMakeFiles/VkScene.dir/src/main.cpp.obj
 VkScene.exe: CMakeFiles/VkScene.dir/build.make
+VkScene.exe: C:/VulkanSDK/1.3.296.0/Lib/vulkan-1.lib
+VkScene.exe: ThirdParty/SDL/libSDL3.dll.a
+VkScene.exe: D:/Repos/C++Replication/ThirdParty/SDL/src/dynapi/SDL_dynapi.sym
 VkScene.exe: CMakeFiles/VkScene.dir/linkLibs.rsp
 VkScene.exe: CMakeFiles/VkScene.dir/objects1.rsp
 VkScene.exe: CMakeFiles/VkScene.dir/link.txt

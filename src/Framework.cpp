@@ -15,6 +15,7 @@ bool InitWrapperFW()
     SDL_Init(SDL_INIT_VIDEO);
     SDL_Vulkan_LoadLibrary(nullptr);
     gWindow->sdlWindow = SDL_CreateWindow("Framework Renderer", 1280, 720, SDL_WINDOW_VULKAN);
+    gWindow->Resolution = {1280, 720};
 
     uint32_t ExtCount = 0;
     const char* const* SdlExt = SDL_Vulkan_GetInstanceExtensions(&ExtCount);
@@ -110,6 +111,44 @@ bool InitWrapperFW()
     {
         throw std::runtime_error("Failed to create vulkan device for global context");
     }
+
+    uint32_t FormCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(gContext->PhysDevice, gWindow->Surface, &FormCount, nullptr);
+    std::vector<VkSurfaceFormatKHR> Formats(FormCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(gContext->PhysDevice, gWindow->Surface, &FormCount, Formats.data());
+
+    for(uint32_t i = 0; i < FormCount; i++)
+    {
+        if(Formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        {
+            gWindow->SurfFormat = Formats[i];
+            break;
+        }
+    }
+
+    VkSwapchainCreateInfoKHR SwapCI{};
+    SwapCI.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    SwapCI.clipped = VK_FALSE;
+    SwapCI.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    SwapCI.imageArrayLayers = 1;
+    SwapCI.imageColorSpace = gWindow->SurfFormat.colorSpace;
+    SwapCI.imageExtent = gWindow->Resolution;
+    SwapCI.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    SwapCI.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    SwapCI.minImageCount = 2;
+    SwapCI.surface = gWindow->Surface;
+    SwapCI.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    SwapCI.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+
+    if((Err = vkCreateSwapchainKHR(gContext->Device, &SwapCI, nullptr, &gWindow->Swapchain)) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create framework swapchain");
+    }
+
+    uint32_t SwpImgCount;
+    vkGetSwapchainImagesKHR(gContext->Device, gWindow->Swapchain, &SwpImgCount, nullptr);
+    gWindow->SwpImages.resize(SwpImgCount);
+    vkGetSwapchainImagesKHR(gContext->Device, gWindow->Swapchain, &SwpImgCount, gWindow->SwpImages.data());
 
     vkGetDeviceQueue(gContext->Device, GraphicsFamily, 0, &gContext->GraphicsQueue);
     vkGetDeviceQueue(gContext->Device, ComputeFamily, 0, &gContext->ComputeQueue);

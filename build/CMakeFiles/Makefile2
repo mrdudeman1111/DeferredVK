@@ -63,15 +63,47 @@ CMAKE_BINARY_DIR = D:\Repos\C++Replication\build
 
 # The main recursive "all" target.
 all: CMakeFiles/VkScene.dir/all
+all: ThirdParty/all
 .PHONY : all
 
 # The main recursive "preinstall" target.
-preinstall:
+preinstall: ThirdParty/preinstall
 .PHONY : preinstall
 
 # The main recursive "clean" target.
 clean: CMakeFiles/VkScene.dir/clean
+clean: ThirdParty/clean
 .PHONY : clean
+
+#=============================================================================
+# Directory level rules for directory ThirdParty
+
+# Recursive "all" directory target.
+ThirdParty/all: ThirdParty/VulkanMemoryAllocator/all
+.PHONY : ThirdParty/all
+
+# Recursive "preinstall" directory target.
+ThirdParty/preinstall: ThirdParty/VulkanMemoryAllocator/preinstall
+.PHONY : ThirdParty/preinstall
+
+# Recursive "clean" directory target.
+ThirdParty/clean: ThirdParty/VulkanMemoryAllocator/clean
+.PHONY : ThirdParty/clean
+
+#=============================================================================
+# Directory level rules for directory ThirdParty/VulkanMemoryAllocator
+
+# Recursive "all" directory target.
+ThirdParty/VulkanMemoryAllocator/all:
+.PHONY : ThirdParty/VulkanMemoryAllocator/all
+
+# Recursive "preinstall" directory target.
+ThirdParty/VulkanMemoryAllocator/preinstall:
+.PHONY : ThirdParty/VulkanMemoryAllocator/preinstall
+
+# Recursive "clean" directory target.
+ThirdParty/VulkanMemoryAllocator/clean:
+.PHONY : ThirdParty/VulkanMemoryAllocator/clean
 
 #=============================================================================
 # Target rules for target CMakeFiles/VkScene.dir

@@ -22,19 +22,23 @@ namespace Wrappers
             vkCreateDescriptorSetLayout(pCtx->Device, &LayCI, nullptr, &Layout);
         }
 
-        void FrameBuffer::AddBuffer(VkImageCreateInfo ImgInf)
+        void FrameBuffer::AddBuffer(FrameBufferAttachment Attachment, VkImageCreateInfo ImgInf)
         {
+            AttachmentDescriptions.push_back(Attachment);
             AttachmentInfos.push_back(ImgInf);
         }
 
-        void FrameBuffer::AddBuffer(VkImageView ImgView)
+        void FrameBuffer::AddBuffer(FrameBufferAttachment Attachment, VkImageView ImgView)
         {
+            AttachmentDescriptions.push_back(Attachment);
             AttachmentViews.push_back(ImgView);
         }
 
         void FrameBuffer::Bake(VkRenderPass Renderpass)
         {
             VkResult Err;
+
+            FrameBufferAttachment Ref;
 
             Context* pCtx = GetContext();
 
@@ -94,6 +98,30 @@ namespace Wrappers
                 throw std::runtime_error("Failed to create framebuffer");
             }
         }
+    }
+
+    void Subpass::AddAttachment(uint32_t AttIdx, VkImageLayout ImgLayout)
+    {
+        VkAttachmentReference tmp{};
+        tmp.attachment = AttIdx;
+        tmp.layout = ImgLayout;
+
+        Attachments.push_back(tmp);
+    }
+
+    void RenderPass::AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkSampleCountFlagBits Samples)
+    {
+        VkAttachmentDescription tmp{};
+        tmp.samples = VK_SAMPLE_COUNT_1_BIT;
+        tmp.format = Format;
+        tmp.initialLayout = InitLay;
+        tmp.finalLayout = FinLay;
+        tmp.storeOp = StoreOp;
+        tmp.loadOp = LoadOp;
+        tmp.stencilStoreOp = StencilStoreOp;
+        tmp.stencilLoadOp = StencilLoadOp;
+
+        Attachments.push_back(tmp);
     }
 
     void RenderPass::Bake()

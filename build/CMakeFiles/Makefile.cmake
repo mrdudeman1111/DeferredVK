@@ -20,6 +20,10 @@ set(CMAKE_MAKEFILE_DEPENDS
   "C:/mingw64/share/cmake-3.30/Modules/Compiler/GNU-C.cmake"
   "C:/mingw64/share/cmake-3.30/Modules/Compiler/GNU-CXX.cmake"
   "C:/mingw64/share/cmake-3.30/Modules/Compiler/GNU.cmake"
+  "C:/mingw64/share/cmake-3.30/Modules/FeatureSummary.cmake"
+  "C:/mingw64/share/cmake-3.30/Modules/FindPackageHandleStandardArgs.cmake"
+  "C:/mingw64/share/cmake-3.30/Modules/FindPackageMessage.cmake"
+  "C:/mingw64/share/cmake-3.30/Modules/FindVulkan.cmake"
   "C:/mingw64/share/cmake-3.30/Modules/Platform/Windows-GNU-C-ABI.cmake"
   "C:/mingw64/share/cmake-3.30/Modules/Platform/Windows-GNU-C.cmake"
   "C:/mingw64/share/cmake-3.30/Modules/Platform/Windows-GNU-CXX-ABI.cmake"
@@ -30,10 +34,17 @@ set(CMAKE_MAKEFILE_DEPENDS
   "C:/mingw64/share/cmake-3.30/Modules/Platform/Windows.cmake"
   "C:/mingw64/share/cmake-3.30/Modules/Platform/WindowsPaths.cmake"
   "D:/Repos/C++Replication/CMakeLists.txt"
+  "D:/Repos/C++Replication/ThirdParty/CMakeLists.txt"
+  "D:/Repos/C++Replication/ThirdParty/VulkanMemoryAllocator/CMakeLists.txt"
   "CMakeFiles/3.30.4/CMakeCCompiler.cmake"
   "CMakeFiles/3.30.4/CMakeCXXCompiler.cmake"
   "CMakeFiles/3.30.4/CMakeRCCompiler.cmake"
   "CMakeFiles/3.30.4/CMakeSystem.cmake"
+  "ThirdParty/SDL/SDL3Config.cmake"
+  "ThirdParty/SDL/SDL3ConfigVersion.cmake"
+  "ThirdParty/SDL/SDL3headersTargets.cmake"
+  "ThirdParty/SDL/SDL3sharedTargets.cmake"
+  "ThirdParty/SDL/SDL3testTargets.cmake"
   )
 
 # The corresponding makefile is:
@@ -45,6 +56,8 @@ set(CMAKE_MAKEFILE_OUTPUTS
 # Byproducts of CMake generate step:
 set(CMAKE_MAKEFILE_PRODUCTS
   "CMakeFiles/CMakeDirectoryInformation.cmake"
+  "ThirdParty/CMakeFiles/CMakeDirectoryInformation.cmake"
+  "ThirdParty/VulkanMemoryAllocator/CMakeFiles/CMakeDirectoryInformation.cmake"
   )
 
 # Dependency information for all targets:
