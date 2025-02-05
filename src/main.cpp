@@ -1,12 +1,113 @@
 #include <iostream>
 
-#include "Framework.hpp"
+#include "Renderer.hpp"
+
+#include "glm/gtc/matrix_transform.hpp"
+
+struct
+{
+    bool Forward;
+    bool Back;
+    bool Left;
+    bool Right;
+    float MouseX;
+    float MouseY;
+} InputMap;
+
+class Camera
+{
+public:
+    void Move()
+    {
+        glm::vec3 Move;
+
+        CamMat = glm::translate(CamMat, (Move*Speed));
+    }
+
+    void Rotate()
+    {
+        glm::vec2 MouseDelta = PrevMouse - glm::vec2(InputMap.MouseX, InputMap.MouseY);
+
+        PrevMouse.x = InputMap.MouseX;
+        PrevMouse.y = InputMap.MouseY;
+
+        CamMat = glm::rotate(CamMat, MouseDelta.x, glm::vec3(0.f, 1.f, 0.f)); // rotate along the y-axis (up)
+        CamMat = glm::rotate(CamMat, MouseDelta.y, glm::vec3(1.f, 0.f, 0.f)); // rotate along the x-axis (right)
+    }
+
+    glm::mat4 CamMat;
+
+private:
+    float Speed = 0.3f;
+    glm::vec2 PrevMouse;
+} SceneCamera;
+
+bool PollInputs()
+{
+    SDL_Event FrameEvent;
+    while(SDL_PollEvent(&FrameEvent))
+    {
+        if(FrameEvent.type == SDL_EVENT_QUIT)
+        {
+            return false;
+        }
+        else if(FrameEvent.type == SDL_EVENT_KEY_DOWN)
+        {
+            if(FrameEvent.key.key == SDLK_W)
+            {
+                InputMap.Forward = true;
+            }
+            else if(FrameEvent.key.key == SDLK_S)
+            {
+                InputMap.Back = true;
+            }
+            else if(FrameEvent.key.key == SDLK_A)
+            {
+                InputMap.Left = true;
+            }
+            else if(FrameEvent.key.key == SDLK_D)
+            {
+                InputMap.Right = true;
+            }
+        }
+        else if(FrameEvent.type == SDL_EVENT_KEY_UP)
+        {
+            if(FrameEvent.key.key == SDLK_ESCAPE)
+            {
+                return false;
+            }
+            else if(FrameEvent.key.key == SDLK_W)
+            {
+                InputMap.Forward = false;
+            }
+            else if(FrameEvent.key.key == SDLK_S)
+            {
+                InputMap.Back = false;
+            }
+            else if(FrameEvent.key.key == SDLK_A)
+            {
+                InputMap.Left = false;
+            }
+            else if(FrameEvent.key.key == SDLK_D)
+            {
+                InputMap.Right = false;
+            }
+        }
+        else if(FrameEvent.type == SDL_EVENT_MOUSE_MOTION)
+        {
+            InputMap.MouseX = FrameEvent.motion.x;
+            InputMap.MouseY = FrameEvent.motion.y;
+        }
+    }
+
+    return true;
+}
 
 int main()
 {
     InitWrapperFW();
 
-    Wrappers::PipelineProfile MainProf;
+    PipelineProfile MainProf;
     MainProf.Topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     MainProf.MsaaSamples = VK_SAMPLE_COUNT_1_BIT;
 
@@ -17,6 +118,10 @@ int main()
     MainProf.bDepthTesting = true;
     MainProf.DepthRange = {0.f, 1.f};
     MainProf.DepthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    MainProf.AddBinding(0, sizeof(float)*5, VK_VERTEX_INPUT_RATE_VERTEX);
+    MainProf.AddAttribute(0, VK_FORMAT_R32G32B32_SFLOAT, 0, 0);
+    MainProf.AddAttribute(0, VK_FORMAT_R32G32_SFLOAT, 1, sizeof(glm::vec3));
 
     VkImageCreateInfo DepthBuffer{};
     DepthBuffer.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -31,42 +136,143 @@ int main()
     DepthBuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     DepthBuffer.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    std::vector<Wrappers::Resources::FrameBuffer> FB(GetWindow()->SwpImages.size());
-    for(uint32_t i = 0; i < FB.size(); i++)
+    std::vector<Resources::FrameBuffer> FrameBuffers(GetWindow()->SwapchainAttachments.size());
+    for(uint32_t i = 0; i < FrameBuffers.size(); i++)
     {
-        FB[i].AddBuffer(DepthBuffer);
+        FrameBuffers[i].AddBuffer(GetWindow()->SwapchainAttachments[i]);
+        FrameBuffers[i].AddBuffer(DepthBuffer);
     }
 
-    VkAttachmentReference ColorRef{};
-    ColorRef.attachment = 0;
-    ColorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    RenderPass ForwardRenderPass;
+    // Swapchain/output attachment
+    ForwardRenderPass.AddAttachmentDesc(GetWindow()->SurfFormat.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+    // Depth attachment
+    ForwardRenderPass.AddAttachmentDesc(VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR);
 
-    VkAttachmentReference DepthRef{};
-    DepthRef.attachment = 1;
-    DepthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    Subpass ForwardPass;
+    // Swapchain/output attachment
+    ForwardPass.AddColorAttachment(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    // Depth attachment
+    ForwardPass.AddDepthAttachmment(1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-    VkAttachmentDescription ColorDesc{};
-    ColorDesc.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    ColorDesc.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    ColorDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-    ColorDesc.format = GetWindow()->SurfFormat.format;
-    ColorDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    ColorDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    ColorDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    ColorDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    ForwardRenderPass.AddPass(ForwardPass);
 
-    VkAttachmentDescription DepthDesc{};
-    DepthDesc.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    DepthDesc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    DepthDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-    DepthDesc.format = VK_FORMAT_D32_SFLOAT;
-    DepthDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    DepthDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    DepthDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    DepthDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+    ForwardRenderPass.Bake();
 
-    FbDesc.AddBuffer(ColorDesc, ColorRef);
-    FbDesc.AddBuffer(DepthDesc, DepthRef);
+    Allocators::CommandPool GraphicsPool;
+    GraphicsPool.Bake(false);
+    Resources::CommandBuffer RenderBuff = GraphicsPool.CreateBuffer();
+
+    RenderBuff.Start();
+        std::vector<VkImageMemoryBarrier> ImgBarriers;
+
+        for(uint32_t i = 0; i < FrameBuffers.size(); i++)
+        {
+            VkImageMemoryBarrier ImgBarrier{};
+            ImgBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            ImgBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            ImgBarrier.subresourceRange.levelCount = 1;
+            ImgBarrier.subresourceRange.layerCount = 1;
+            ImgBarrier.subresourceRange.baseArrayLayer = 0;
+            ImgBarrier.subresourceRange.baseMipLevel = 0;
+            ImgBarrier.srcAccessMask = VK_ACCESS_NONE;
+            ImgBarrier.dstAccessMask = VK_ACCESS_NONE;
+            ImgBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            ImgBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            ImgBarrier.image = GetWindow()->SwapchainImages[i];
+
+            ImgBarriers.push_back(ImgBarrier);
+        }
+
+        vkCmdPipelineBarrier(RenderBuff, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, ImgBarriers.size(), ImgBarriers.data());
+    RenderBuff.Stop();
+
+    GraphicsPool.Submit(&RenderBuff, VK_NULL_HANDLE);
+
+    for(uint32_t i = 0; i < GetWindow()->SwapchainAttachments.size(); i++)
+    {
+        FrameBuffers[i].Bake(ForwardRenderPass.rPass);
+    }
+
+    Resources::DescriptorLayout WvpLayout;
+    Resources::Buffer WvpBuffer;
+
+    {
+        CreateBuffer(WvpBuffer, sizeof(glm::mat4)*3, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+
+        Allocate(WvpBuffer, true);
+
+        Map(&WvpBuffer);
+
+        glm::mat4* pWvp = (glm::mat4*)WvpBuffer.pData;
+        pWvp[0] = glm::mat4(1.f);
+        pWvp[2] = glm::perspective(45.f, 16.f/9.f, 0.f, 9999.f);
+
+        VkDescriptorSetLayoutBinding uBufferBinding{};
+        uBufferBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        uBufferBinding.binding = 0;
+        uBufferBinding.descriptorCount = 1;
+        uBufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
+        WvpLayout.AddBinding(uBufferBinding);
+
+        Allocators::DescriptorPool WvpPool{};
+        WvpPool.SetLayout(&WvpLayout);
+        WvpPool.Bake(1);
+
+        Resources::DescriptorSet WvpUniform = WvpPool.CreateSet();
+
+        Resources::DescUpdate UpdateInfo{};
+        UpdateInfo.DescType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        UpdateInfo.Binding = 0;
+        UpdateInfo.DescCount = 1;
+        UpdateInfo.DescIndex = 0;
+
+        UpdateInfo.pBuff = &WvpBuffer;
+        UpdateInfo.Range = sizeof(glm::mat4)*3;
+        UpdateInfo.Offset = 0;
+
+        WvpUniform.Update(UpdateInfo);
+    }
+
+    Pipeline ForwardPipe;
+    ForwardPipe.SetProfile(MainProf);
+    ForwardPipe.AddDescriptor(&WvpLayout);
+
+    VkPipelineColorBlendAttachmentState ColorState{};
+    ColorState.blendEnable = VK_TRUE;
+    ColorState.alphaBlendOp = VK_BLEND_OP_ADD;
+    ColorState.colorBlendOp = VK_BLEND_OP_ADD;
+    ColorState.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    ColorState.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    ColorState.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+    ColorState.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    ColorState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+
+    ForwardPipe.AddAttachmentBlending(ColorState);
+    ForwardPipe.Bake(ForwardRenderPass, 0, "Vert.spv", "Frag.spv");
+
+    glm::mat4* pWVP = (glm::mat4*)WvpBuffer.pData;
+
+    while(PollInputs())
+    {
+        SceneCamera.Rotate();
+        SceneCamera.Move();
+
+        pWVP[1] = glm::inverse(SceneCamera.CamMat);
+    }
+
+    /*
+    Wrappers::RenderPass ForwardPass;
+        Wrappers::Subpass zPrePass; // Depth prepass to avoid overdraw
+        Wrappers::Subpass ForwardPass; // Forward render all meshes with lighting
+        Wrappers::Subpass OITPass; // render order independent transparency
+
+    Wrappers::RenderPass DeferredPass;
+        Wrappers::Subpass ODTPass; // render order dependent transparency to stencil
+        Wrappers::Subpass GeoPass; // render geometry to gBuffer
+        Wrappers::Subpass Lighting; // perform texturing and lighting on gBuffer
+    */
 
     CloseWrapperFW();
 

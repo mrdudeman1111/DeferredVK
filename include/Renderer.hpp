@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Wrappers.hpp"
+#include "Framework.hpp"
 
-#include <map>
+#include <unordered_map>
 
 struct Vertex
 {
@@ -12,8 +12,8 @@ struct Vertex
 
 struct Texture
 {
-    Resources::Image* Img;
-    VkSampler2D Sampler;
+    Resources::Image* Img = nullptr;
+    VkSampler Sampler;
 };
 
 class pbrMesh
@@ -24,20 +24,22 @@ class pbrMesh
     Resources::Buffer MeshBuffer;
 
     Resources::Buffer MVP;
-    Texture Albedo;
-    Texture Normal;
+    Texture Albedo = {};
+    Texture Normal = {};
 
     Resources::DescriptorSet MeshDesc;
 };
 
-
-/*! \brief Contains heaps(arrays of allocators), pipelines, renderpasses, and drawables and renders them to the screen */
+/*! \brief Contains heaps(arrays of allocator memory wrappers), pipelines, renderpasses, and drawables and renders them to the screen */
 class SceneRenderer
 {
     std::unordered_map<VkDescriptorSetLayout, Allocators::DescriptorPool> DescriptorHeaps;
 
+    Allocators::CommandPool GraphicsHeap;
+    Allocators::CommandPool ComputeHeap;
+
     /* Scene Render Information */
-    VkRenderPass ScenePass;
+    RenderPass ScenePass;
     PipelineProfile SceneProfile;
 
     std::vector<Pipeline> Pipelines;
