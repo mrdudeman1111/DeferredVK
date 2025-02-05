@@ -18,6 +18,7 @@ struct Texture
 
 class pbrMesh
 {
+public:
     std::vector<Vertex> Vertices;
     std::vector<uint32_t> Indices;
 
@@ -27,20 +28,26 @@ class pbrMesh
     Texture Albedo = {};
     Texture Normal = {};
 
-    Resources::DescriptorSet MeshDesc;
+    Resources::DescriptorSet Mesh$
 };
 
 /*! \brief Contains heaps(arrays of allocator memory wrappers), pipelines, renderpasses, and drawables and renders them to the screen */
 class SceneRenderer
 {
+public:
+    Pipeline* CreatePipeline() {}
+    pbrMesh* CreateDrawable(const char* Path);
+
     std::unordered_map<VkDescriptorSetLayout, Allocators::DescriptorPool> DescriptorHeaps;
 
     Allocators::CommandPool GraphicsHeap;
     Allocators::CommandPool ComputeHeap;
 
     /* Scene Render Information */
-    RenderPass ScenePass;
     PipelineProfile SceneProfile;
+
+private:
+    RenderPass ScenePass;
 
     std::vector<Pipeline> Pipelines;
     std::vector<pbrMesh> Drawables;
