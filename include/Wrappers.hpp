@@ -18,6 +18,7 @@ struct PipeLocation
 
 namespace Resources
 {
+    /*! \brief A wrapper class that stores information about an object's binding, including a pointer to the heap/memory it's bound to */
     class Allocation
     {
     public:
@@ -27,8 +28,14 @@ namespace Resources
         VkDeviceMemory* pMemory;
     };
 
+    /*! \brief A wrapper around Vulkan Images.
+    *   Contains the Image handle, format, resolution, and allocation.
+    */
     struct Image
     {
+    public:
+        ~Image();
+
         VkImage Img;
 
         VkFormat Format;
@@ -37,8 +44,14 @@ namespace Resources
         Allocation Alloc;
     };
 
+    /*! \brief A wrapper around vulkan buffers.
+    *   Contains the buffer and allocation, as well as a pointer to the memory if it is mapped.
+    */
     struct Buffer
     {
+    public:
+        ~Buffer();
+
         VkBuffer Buff;
 
         Allocation Alloc;
@@ -46,9 +59,14 @@ namespace Resources
         void* pData = nullptr;
     };
 
+    /*! \brief A wrapper around command buffers.
+    *   contains the command buffer, a fence, and a pointer to the command pool. Also contains methods for recording.
+    */
     class CommandBuffer
     {
     public:
+        ~CommandBuffer();
+
         void Bake(VkCommandPool* pCmdPool, bool bCompute);
         void Start();
         void Stop();
@@ -65,6 +83,7 @@ namespace Resources
         VkFence Fence;
 
     private:
+        VkCommandPool* pPool;
         VkCommandBuffer cmdBuffer;
         bool bCompute;
     };
@@ -72,6 +91,8 @@ namespace Resources
     class DescriptorLayout
     {
     public:
+        ~DescriptorLayout();
+
         void AddBinding(VkDescriptorSetLayoutBinding Binding);
 
         VkDescriptorSetLayout Layout = VK_NULL_HANDLE;
@@ -98,17 +119,25 @@ namespace Resources
     class DescriptorSet
     {
     public:
+        ~DescriptorSet();
+
         VkDescriptorSet DescSet; //! > The vulkan api handle to the allocated descriptor set.
         DescriptorLayout* DescLayout; //! > A pointer to the descriptor layout used to create this descriptor set.
 
         //! \brief Wraps descriptor writes using a custom struct.
         void Update(DescUpdate UpdateInfo);
+
+        VkDescriptorPool* pPool;
     };
 
     // Wraps FrameBufferInformation
     class FrameBuffer
     {
     public:
+        ~FrameBuffer();
+
+        operator VkFramebuffer*() { return &Framebuff; }
+
         void AddBuffer(VkImageCreateInfo ImgCI);
         void AddBuffer(VkImageView ImgView);
         void Bake(VkRenderPass Renderpass);
@@ -128,11 +157,13 @@ namespace Allocators
     class DescriptorPool
     {
     public:
+        ~DescriptorPool();
+
         void SetLayout(Resources::DescriptorLayout* Layout) { DescLayout = Layout; };
 
         void Bake(uint32_t SetCount);
 
-        Resources::DescriptorSet CreateSet();
+        Resources::DescriptorSet* CreateSet();
 
         VkDescriptorPool DescPool;
 
@@ -148,6 +179,8 @@ namespace Allocators
     class CommandPool
     {
     public:
+        ~CommandPool();
+
         void Bake(bool bCompute);
         void Submit(Resources::CommandBuffer* pCmdBuffer, VkFence* pFence, uint32_t SignalSemCount = 0, VkSemaphore* SignalSemaphores = nullptr, uint32_t WaitSemCount = 0, VkSemaphore* WaitSemaphores = nullptr);
         Resources::CommandBuffer CreateBuffer();
@@ -182,16 +215,24 @@ private:
 
 struct RenderPass
 {
-    void AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT);
+public:
+    ~RenderPass();
+
+    void AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkClearValue ClearValue, VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT);
     inline void AddPass(Subpass& sPass) { Subpasses.push_back(sPass); }
 
     void Bake();
+
+    void Begin(Resources::CommandBuffer& cmdBuffer, Resources::FrameBuffer& FrameBuffer);
+    void End(Resources::CommandBuffer& cmdBuffer);
+    void NextPass();
 
     VkRenderPass rPass;
 
 private:
     std::vector<Subpass> Subpasses;
     std::vector<VkAttachmentDescription> Attachments;
+    std::vector<VkClearValue> BufferClears;
 };
 
 struct VertDesc
@@ -253,10 +294,14 @@ private:
 class Pipeline
 {
 public:
+    ~Pipeline();
+
+    void Bind(VkCommandBuffer* pCmdBuffer);
+
     void AddAttachmentBlending(VkPipelineColorBlendAttachmentState AttBlend) { OutputBlending.push_back(AttBlend); }
     inline void SetProfile(PipelineProfile PipeProf) { Profile = PipeProf; }
 
-    void Bake(RenderPass rPass, uint32_t Subpass, const char* Vtx, const char* Frag);
+    void Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const char* Frag);
     void AddDescriptor(Resources::DescriptorLayout* pDesc) { Descriptors.push_back(pDesc->Layout); }
 
     VkPipelineLayout PipeLayout;
@@ -292,6 +337,9 @@ struct Context
 struct Window
 {
 public:
+    uint32_t GetNextFrame(VkSemaphore& Semaphore);
+    void PresentFrame(uint32_t FrameIdx, VkSemaphore* pWaitSem = nullptr);
+
     VkExtent2D Resolution;
     VkSurfaceFormatKHR SurfFormat;
 

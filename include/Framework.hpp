@@ -4,7 +4,7 @@
 
 #define PAGE_SIZE 16777216
 
-bool InitWrapperFW();
+bool InitWrapperFW(uint32_t Width = 1280, uint32_t Height = 720);
 void CloseWrapperFW();
 
 Context* GetContext();
@@ -13,6 +13,12 @@ Window* GetWindow();
 
 
 /* creation functions */
+    /*! \brief Create a semaphore */
+    VkSemaphore CreateSemaphore();
+
+    /*! \brief Create a Fence */
+    VkFence CreateFence();
+
     /*! \brief Allocate a Buffer
         @param Buffer The addres of the buffer to allocate
         @param bVisible Determines whether the buffer should be allocated on host visible memory

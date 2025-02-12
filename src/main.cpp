@@ -4,6 +4,8 @@
 
 #include "glm/gtc/matrix_transform.hpp"
 
+SceneRenderer Scene;
+
 struct
 {
     bool Forward;
@@ -41,6 +43,12 @@ private:
     float Speed = 0.3f;
     glm::vec2 PrevMouse;
 } SceneCamera;
+
+struct
+{
+    VkSemaphore FrameSem;
+    VkSemaphore RenderSem;
+} SceneSync;
 
 bool PollInputs()
 {
@@ -107,22 +115,6 @@ int main()
 {
     InitWrapperFW();
 
-    PipelineProfile MainProf;
-    MainProf.Topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    MainProf.MsaaSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    MainProf.RenderSize = {1280, 720};
-    MainProf.RenderOffset = {0, 0};
-
-    MainProf.bStencilTesting = true;
-    MainProf.bDepthTesting = true;
-    MainProf.DepthRange = {0.f, 1.f};
-    MainProf.DepthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    MainProf.AddBinding(0, sizeof(float)*5, VK_VERTEX_INPUT_RATE_VERTEX);
-    MainProf.AddAttribute(0, VK_FORMAT_R32G32B32_SFLOAT, 0, 0);
-    MainProf.AddAttribute(0, VK_FORMAT_R32G32_SFLOAT, 1, sizeof(glm::vec3));
-
     VkImageCreateInfo DepthBuffer{};
     DepthBuffer.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     DepthBuffer.extent = { GetWindow()->Resolution.width, GetWindow()->Resolution.height, 1 };
@@ -143,11 +135,14 @@ int main()
         FrameBuffers[i].AddBuffer(DepthBuffer);
     }
 
+    VkClearValue ColorClear; ColorClear.color.float32[0] = 0.f; ColorClear.color.float32[1] = 0.f; ColorClear.color.float32[2] = 0.f; ColorClear.color.float32[3] = 0.f;
+    VkClearValue DepthClear; DepthClear.depthStencil.depth = 1.f;
+
     RenderPass ForwardRenderPass;
     // Swapchain/output attachment
-    ForwardRenderPass.AddAttachmentDesc(GetWindow()->SurfFormat.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+    ForwardRenderPass.AddAttachmentDesc(GetWindow()->SurfFormat.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, ColorClear);
     // Depth attachment
-    ForwardRenderPass.AddAttachmentDesc(VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR);
+    ForwardRenderPass.AddAttachmentDesc(VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR, DepthClear);
 
     Subpass ForwardPass;
     // Swapchain/output attachment
@@ -194,8 +189,10 @@ int main()
         FrameBuffers[i].Bake(ForwardRenderPass.rPass);
     }
 
+    Allocators::DescriptorPool WvpPool{};
     Resources::DescriptorLayout WvpLayout;
     Resources::Buffer WvpBuffer;
+    Resources::DescriptorSet* pWvpUniform;
 
     {
         CreateBuffer(WvpBuffer, sizeof(glm::mat4)*3, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -216,11 +213,10 @@ int main()
 
         WvpLayout.AddBinding(uBufferBinding);
 
-        Allocators::DescriptorPool WvpPool{};
         WvpPool.SetLayout(&WvpLayout);
         WvpPool.Bake(1);
 
-        Resources::DescriptorSet WvpUniform = WvpPool.CreateSet();
+        pWvpUniform = WvpPool.CreateSet();
 
         Resources::DescUpdate UpdateInfo{};
         UpdateInfo.DescType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -232,7 +228,7 @@ int main()
         UpdateInfo.Range = sizeof(glm::mat4)*3;
         UpdateInfo.Offset = 0;
 
-        WvpUniform.Update(UpdateInfo);
+        pWvpUniform->Update(UpdateInfo);
     }
 
     Pipeline ForwardPipe;
@@ -250,9 +246,14 @@ int main()
     ColorState.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
 
     ForwardPipe.AddAttachmentBlending(ColorState);
-    ForwardPipe.Bake(ForwardRenderPass, 0, "Vert.spv", "Frag.spv");
+    ForwardPipe.Bake(&ForwardRenderPass, 0, "Vert.spv", "Frag.spv");
 
     glm::mat4* pWVP = (glm::mat4*)WvpBuffer.pData;
+
+    SceneSync.FrameSem = CreateSemaphore();
+    SceneSync.RenderSem = CreateSemaphore();
+
+    uint32_t FrameIdx;
 
     while(PollInputs())
     {
@@ -260,6 +261,19 @@ int main()
         SceneCamera.Move();
 
         pWVP[1] = glm::inverse(SceneCamera.CamMat);
+
+        FrameIdx = GetWindow()->GetNextFrame(SceneSync.FrameSem);
+
+        RenderBuff.Start();
+            ForwardRenderPass.Begin(RenderBuff, FrameBuffers[FrameIdx]);
+                ForwardPipe.Bind(RenderBuff);
+
+            ForwardRenderPass.End(RenderBuff);
+        RenderBuff.Stop();
+
+        GraphicsPool.Submit(&RenderBuff, nullptr, 1, &SceneSync.RenderSem);
+
+        GetWindow()->PresentFrame(FrameIdx, &SceneSync.RenderSem);
     }
 
     /*

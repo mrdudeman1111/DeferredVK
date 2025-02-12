@@ -26,7 +26,7 @@ public:
 } ApplicationMemory;
 
 
-bool InitWrapperFW()
+bool InitWrapperFW(uint32_t Width, uint32_t Height)
 {
     VkResult Err;
 
@@ -35,8 +35,8 @@ bool InitWrapperFW()
 
     SDL_Init(SDL_INIT_VIDEO);
     SDL_Vulkan_LoadLibrary(nullptr);
-    gWindow->sdlWindow = SDL_CreateWindow("Framework Renderer", 1280, 720, SDL_WINDOW_VULKAN);
-    gWindow->Resolution = {1280, 720};
+    gWindow->sdlWindow = SDL_CreateWindow("Framework Renderer", Width, Height, SDL_WINDOW_VULKAN);
+    gWindow->Resolution = {Width, Height};
 
     SDL_SetWindowRelativeMouseMode(gWindow->sdlWindow, true);
 
@@ -238,6 +238,30 @@ Context* GetContext()
 Window* GetWindow()
 {
     return gWindow;
+}
+
+VkSemaphore CreateSemaphore()
+{
+    VkSemaphore Ret;
+
+    VkSemaphoreCreateInfo SemCI{};
+    SemCI.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    vkCreateSemaphore(GetContext()->Device, &SemCI, nullptr, &Ret);
+
+    return Ret;
+}
+
+VkFence CreateFence()
+{
+    VkFence Ret;
+
+    VkFenceCreateInfo FenceCI{};
+    FenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+    vkCreateFence(GetContext()->Device, &FenceCI, nullptr, &Ret);
+
+    return Ret;
 }
 
 void Allocate(Resources::Buffer& Buffer, bool bVisible)

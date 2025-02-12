@@ -5,6 +5,59 @@
 
 namespace Resources
 {
+    Image::~Image()
+    {
+        vkDestroyImage(GetContext()->Device, Img, nullptr);
+    }
+
+    Buffer::~Buffer()
+    {
+        vkDestroyBuffer(GetContext()->Device, Buff, nullptr);
+    }
+
+    CommandBuffer::~CommandBuffer()
+    {
+        vkFreeCommandBuffers(GetContext()->Device, *pPool, 1, &cmdBuffer);
+    }
+
+    void CommandBuffer::Bake(VkCommandPool* pCmdPool, bool bComp)
+    {
+        VkResult Err;
+
+        VkCommandBufferAllocateInfo AllocInf{};
+        AllocInf.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        AllocInf.commandBufferCount = 1;
+        AllocInf.commandPool = *pCmdPool;
+        AllocInf.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+        if((Err = vkAllocateCommandBuffers(GetContext()->Device, &AllocInf, &cmdBuffer)) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to allocate command buffer");
+        }
+
+        bCompute = bComp;
+
+        pPool = pCmdPool;
+    }
+
+    void CommandBuffer::Start()
+    {
+        VkCommandBufferBeginInfo BegInf{};
+        BegInf.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+        vkBeginCommandBuffer(cmdBuffer, &BegInf);
+    }
+
+    void CommandBuffer::Stop()
+    {
+        vkEndCommandBuffer(cmdBuffer);
+    }
+
+    DescriptorLayout::~DescriptorLayout()
+    {
+        vkDestroyDescriptorSetLayout(GetContext()->Device, Layout, nullptr);
+    }
+
     void DescriptorLayout::AddBinding(VkDescriptorSetLayoutBinding Binding)
     {
         Bindings.push_back(Binding);
@@ -24,35 +77,9 @@ namespace Resources
         vkCreateDescriptorSetLayout(pCtx->Device, &LayCI, nullptr, &Layout);
     }
 
-    void CommandBuffer::Bake(VkCommandPool* pCmdPool, bool bComp)
+    DescriptorSet::~DescriptorSet()
     {
-        VkResult Err;
-
-        VkCommandBufferAllocateInfo AllocInf{};
-        AllocInf.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        AllocInf.commandBufferCount = 1;
-        AllocInf.commandPool = *pCmdPool;
-        AllocInf.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-        if((Err = vkAllocateCommandBuffers(GetContext()->Device, &AllocInf, &cmdBuffer)) != VK_SUCCESS)
-        {
-            throw std::runtime_error("Failed to allocate command buffer");
-        }
-
-        bCompute = bComp;
-    }
-
-    void CommandBuffer::Start()
-    {
-        VkCommandBufferBeginInfo BegInf{};
-        BegInf.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-
-        vkBeginCommandBuffer(cmdBuffer, &BegInf);
-    }
-
-    void CommandBuffer::Stop()
-    {
-        vkEndCommandBuffer(cmdBuffer);
+        vkFreeDescriptorSets(GetContext()->Device, *pPool, 1, &DescSet);
     }
 
     void DescriptorSet::Update(DescUpdate UpdateInfo)
@@ -73,6 +100,11 @@ namespace Resources
         WriteInfo.pBufferInfo = &BuffInfo;
 
         vkUpdateDescriptorSets(GetContext()->Device, 1, &WriteInfo, 0, nullptr);
+    }
+
+    FrameBuffer::~FrameBuffer()
+    {
+        vkDestroyFramebuffer(GetContext()->Device, Framebuff, nullptr);
     }
 
     void FrameBuffer::AddBuffer(VkImageCreateInfo ImgInf)
@@ -176,6 +208,11 @@ namespace Resources
 
 namespace Allocators
 {
+    DescriptorPool::~DescriptorPool()
+    {
+        vkDestroyDescriptorPool(GetContext()->Device, DescPool, nullptr);
+    }
+
     void DescriptorPool::Bake(uint32_t SetCount)
     {
         VkResult Err;
@@ -202,11 +239,11 @@ namespace Allocators
         }
     }
 
-    Resources::DescriptorSet DescriptorPool::CreateSet()
+    Resources::DescriptorSet* DescriptorPool::CreateSet()
     {
         VkResult Err;
 
-        Resources::DescriptorSet Ret;
+        Resources::DescriptorSet* Ret = new Resources::DescriptorSet();
 
         VkDescriptorSetAllocateInfo AllocInfo{};
         AllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -214,14 +251,21 @@ namespace Allocators
         AllocInfo.descriptorSetCount = 1;
         AllocInfo.pSetLayouts = &DescLayout->Layout;
 
-        if((Err = vkAllocateDescriptorSets(GetContext()->Device, &AllocInfo, &Ret.DescSet)) != VK_SUCCESS)
+        if((Err = vkAllocateDescriptorSets(GetContext()->Device, &AllocInfo, &Ret->DescSet)) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to allocate descriptor sets");
         }
 
-        Ret.DescLayout = DescLayout;
+        Ret->DescLayout = DescLayout;
+
+        Ret->pPool = &DescPool;
 
         return Ret;
+    }
+
+    CommandPool::~CommandPool()
+    {
+        vkDestroyCommandPool(GetContext()->Device, cmdPool, nullptr);
     }
 
     void CommandPool::Bake(bool bCompute)
@@ -279,7 +323,12 @@ namespace Allocators
     }
 }
 
-void RenderPass::AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkSampleCountFlagBits Samples)
+RenderPass::~RenderPass()
+{
+    vkDestroyRenderPass(GetContext()->Device, rPass, nullptr);
+}
+
+void RenderPass::AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkClearValue ClearValue, VkSampleCountFlagBits Samples)
 {
     VkAttachmentDescription tmp{};
     tmp.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -290,6 +339,8 @@ void RenderPass::AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkIma
     tmp.loadOp = LoadOp;
     tmp.stencilStoreOp = StencilStoreOp;
     tmp.stencilLoadOp = StencilLoadOp;
+
+    BufferClears.push_back(ClearValue);
 
     Attachments.push_back(tmp);
 }
@@ -332,6 +383,25 @@ void RenderPass::Bake()
     {
         throw std::runtime_error("Failed to create renderpass");
     }
+}
+
+void RenderPass::Begin(Resources::CommandBuffer& cmdBuffer, Resources::FrameBuffer& FrameBuffer)
+{
+    VkRenderPassBeginInfo BeginInf{};
+    BeginInf.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    BeginInf.renderPass = rPass;
+    BeginInf.clearValueCount = BufferClears.size();
+    BeginInf.pClearValues = BufferClears.data();
+    BeginInf.renderArea.extent = GetWindow()->Resolution;
+    BeginInf.renderArea.offset = {0, 0};
+    BeginInf.framebuffer = *(VkFramebuffer*)FrameBuffer;
+
+    vkCmdBeginRenderPass(cmdBuffer, &BeginInf, VK_SUBPASS_CONTENTS_INLINE);
+}
+
+void RenderPass::End(Resources::CommandBuffer& cmdBuffer)
+{
+    vkCmdEndRenderPass(cmdBuffer);
 }
 
 VkPipelineMultisampleStateCreateInfo* PipelineProfile::GetMsaa()
@@ -396,7 +466,17 @@ VkPipelineInputAssemblyStateCreateInfo* PipelineProfile::GetAssembly()
     return &AssemblyState;
 }
 
-void Pipeline::Bake(RenderPass rPass, uint32_t Subpass, const char* Vtx, const char* Frag)
+Pipeline::~Pipeline()
+{
+    Context* pCtx = GetContext();
+
+    vkDestroyPipelineLayout(pCtx->Device, PipeLayout, nullptr);
+    vkDestroyShaderModule(pCtx->Device, VtxShader, nullptr);
+    vkDestroyShaderModule(pCtx->Device, FragShader, nullptr);
+    vkDestroyPipeline(pCtx->Device, Pipe, nullptr);
+}
+
+void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const char* Frag)
 {
     VkResult Err;
 
@@ -518,11 +598,41 @@ void Pipeline::Bake(RenderPass rPass, uint32_t Subpass, const char* Vtx, const c
     PipeCI.pColorBlendState = &BlendState;
     PipeCI.stageCount = 2;
     PipeCI.pStages = ShaderStages;
-    PipeCI.renderPass = rPass.rPass;
+    PipeCI.renderPass = rPass->rPass;
     PipeCI.subpass = Subpass;
 
     if((Err = vkCreateGraphicsPipelines(pCtx->Device, VK_NULL_HANDLE, 1, &PipeCI, nullptr, &Pipe)) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create pipeline");
     }
+}
+
+void Pipeline::Bind(VkCommandBuffer* pCmdBuffer)
+{
+    vkCmdBindPipeline(*pCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipe);
+}
+
+uint32_t Window::GetNextFrame(VkSemaphore& Semaphore)
+{
+    uint32_t Ret;
+
+    vkAcquireNextImageKHR(GetContext()->Device, Swapchain, UINT64_MAX, Semaphore, VK_NULL_HANDLE, &Ret);
+
+    return Ret;
+}
+
+void Window::PresentFrame(uint32_t FrameIdx, VkSemaphore* pWaitSem)
+{
+    VkPresentInfoKHR PresInf{};
+    PresInf.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    PresInf.swapchainCount = 1;
+    PresInf.pSwapchains = &Swapchain;
+    
+    if(pWaitSem != nullptr)
+    {
+        PresInf.waitSemaphoreCount = 1;
+        PresInf.pWaitSemaphores = pWaitSem;
+    }
+
+    vkQueuePresentKHR(GetContext()->GraphicsQueue, &PresInf);
 }
