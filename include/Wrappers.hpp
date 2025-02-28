@@ -183,7 +183,7 @@ namespace Allocators
 
         void Bake(bool bCompute);
         void Submit(Resources::CommandBuffer* pCmdBuffer, VkFence* pFence, uint32_t SignalSemCount = 0, VkSemaphore* SignalSemaphores = nullptr, uint32_t WaitSemCount = 0, VkSemaphore* WaitSemaphores = nullptr);
-        Resources::CommandBuffer CreateBuffer();
+        Resources::CommandBuffer* CreateBuffer();
 
         VkCommandPool cmdPool;
 
@@ -218,7 +218,7 @@ struct RenderPass
 public:
     ~RenderPass();
 
-    void AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkClearValue ClearValue, VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT);
+    void AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkClearValue* ClearValue, VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT);
     inline void AddPass(Subpass& sPass) { Subpasses.push_back(sPass); }
 
     void Bake();
@@ -295,6 +295,8 @@ class Pipeline
 {
 public:
     ~Pipeline();
+
+    operator VkPipeline() { return Pipe; }
 
     void Bind(VkCommandBuffer* pCmdBuffer);
 

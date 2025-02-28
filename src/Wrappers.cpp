@@ -30,7 +30,9 @@ namespace Resources
         AllocInf.commandPool = *pCmdPool;
         AllocInf.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-        if((Err = vkAllocateCommandBuffers(GetContext()->Device, &AllocInf, &cmdBuffer)) != VK_SUCCESS)
+        Context* pCtx = GetContext();
+
+        if((Err = vkAllocateCommandBuffers(pCtx->Device, &AllocInf, &cmdBuffer)) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to allocate command buffer");
         }
@@ -309,15 +311,16 @@ namespace Allocators
         }
     }
 
-    Resources::CommandBuffer CommandPool::CreateBuffer()
+    Resources::CommandBuffer* CommandPool::CreateBuffer()
     {
-        Resources::CommandBuffer Ret;
-        Ret.Bake(&cmdPool, false);
+        Resources::CommandBuffer* Ret = new Resources::CommandBuffer();
+        Ret->Bake(&cmdPool, false);
 
         VkFenceCreateInfo FenceCI{};
         FenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 
-        vkCreateFence(GetContext()->Device, &FenceCI, nullptr, &Ret.Fence);
+        Context* pCtx = GetContext();
+        vkCreateFence(pCtx->Device, &FenceCI, nullptr, &Ret->Fence);
 
         return Ret;
     }
@@ -328,7 +331,7 @@ RenderPass::~RenderPass()
     vkDestroyRenderPass(GetContext()->Device, rPass, nullptr);
 }
 
-void RenderPass::AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkClearValue ClearValue, VkSampleCountFlagBits Samples)
+void RenderPass::AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkClearValue* ClearValue, VkSampleCountFlagBits Samples)
 {
     VkAttachmentDescription tmp{};
     tmp.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -340,7 +343,10 @@ void RenderPass::AddAttachmentDesc(VkFormat Format, VkImageLayout InitLay, VkIma
     tmp.stencilStoreOp = StencilStoreOp;
     tmp.stencilLoadOp = StencilLoadOp;
 
-    BufferClears.push_back(ClearValue);
+    if(ClearValue != nullptr)
+    {
+        BufferClears.push_back(*ClearValue);
+    }
 
     Attachments.push_back(tmp);
 }
