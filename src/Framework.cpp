@@ -6,6 +6,8 @@ Window* gWindow; // The Framework's global context.
 
 Context* gContext;
 
+TransferAgent* gTransferAgent;
+
 /*! \brief All the application's memory */
 struct Memory
 {
@@ -30,21 +32,27 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
 {
     VkResult Err;
 
+    // initiate globals
     gContext = new Context();
     gWindow = new Window();
 
+    // initiate SDL for window creation and input management.
     SDL_Init(SDL_INIT_VIDEO);
     SDL_Vulkan_LoadLibrary(nullptr);
     gWindow->sdlWindow = SDL_CreateWindow("Framework Renderer", Width, Height, SDL_WINDOW_VULKAN);
     gWindow->Resolution = {Width, Height};
 
+    // attach the cursor to the window
     SDL_SetWindowRelativeMouseMode(gWindow->sdlWindow, true);
 
+    // retrieve required extensions for SDL
     uint32_t ExtCount = 0;
     const char* const* SdlExt = SDL_Vulkan_GetInstanceExtensions(&ExtCount);
 
+    // validation layers to enable for the vulkan instance
     std::vector<const char*> Layers = { "VK_LAYER_KHRONOS_validation" };
 
+    // instance creation info
     VkInstanceCreateInfo InstCI{};
     InstCI.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     InstCI.enabledLayerCount = 1;
@@ -52,16 +60,19 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
     InstCI.enabledExtensionCount = ExtCount;
     InstCI.ppEnabledExtensionNames = SdlExt;
 
+    // create instance
     if((Err = vkCreateInstance(&InstCI, nullptr, &gContext->Instance)) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create instance");
     }
 
+    // retrieve available physical devices
     uint32_t DeviceCount = 0;
     vkEnumeratePhysicalDevices(gContext->Instance, &DeviceCount, nullptr);
     std::vector<VkPhysicalDevice> PhysDevices(DeviceCount);
     vkEnumeratePhysicalDevices(gContext->Instance, &DeviceCount, PhysDevices.data());
 
+    // find and use the first discrete GPU available
     for(uint32_t i = 0; i < DeviceCount; i++)
     {
         VkPhysicalDeviceProperties DevProps;
@@ -74,6 +85,9 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
         }
     }
 
+    vkGetPhysicalDeviceFeatures(gContext->PhysDevice, &gContext->PhysDeviceFeatures);
+
+    /* retrieve and store local and host memory in globals */
     VkPhysicalDeviceMemoryProperties MemProps;
     vkGetPhysicalDeviceMemoryProperties(gContext->PhysDevice, &MemProps);
 
@@ -92,6 +106,7 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
         }
     }
 
+    /* retrieve and store queue family information */
     uint32_t FamilyCount;
     vkGetPhysicalDeviceQueueFamilyProperties(gContext->PhysDevice, &FamilyCount, nullptr);
     std::vector<VkQueueFamilyProperties> Families(FamilyCount);
@@ -112,102 +127,124 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
         }
     }
 
+    // create render surface from window using SDL
     SDL_Vulkan_CreateSurface(gWindow->sdlWindow, gContext->Instance, nullptr, &gWindow->Surface);
 
-    VkDeviceQueueCreateInfo QueueCI[2] = {};
+    /* Device creation*/
 
-    QueueCI[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    QueueCI[0].queueCount = 1;
-    QueueCI[0].queueFamilyIndex = GraphicsFamily;
+        // Graphics/Compute Queue creation info
+        VkDeviceQueueCreateInfo QueueCI[2] = {};
 
-    QueueCI[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    QueueCI[1].queueCount = 1;
-    QueueCI[1].queueFamilyIndex = ComputeFamily;
+        QueueCI[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        QueueCI[0].queueCount = 1;
+        QueueCI[0].queueFamilyIndex = GraphicsFamily;
 
-    std::vector<const char*> DevExt = { "VK_KHR_swapchain" };
+        QueueCI[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        QueueCI[1].queueCount = 1;
+        QueueCI[1].queueFamilyIndex = ComputeFamily;
 
-    VkDeviceCreateInfo DevCI{};
-    DevCI.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    DevCI.enabledExtensionCount = DevExt.size();
-    DevCI.ppEnabledExtensionNames = DevExt.data();
-    DevCI.queueCreateInfoCount = 2;
-    DevCI.pQueueCreateInfos = QueueCI;
+        // Device extensions to enable
+        std::vector<const char*> DevExt = { "VK_KHR_swapchain" };
 
-    if((Err = vkCreateDevice(gContext->PhysDevice, &DevCI, nullptr, &gContext->Device)) != VK_SUCCESS)
-    {
-        throw std::runtime_error("Failed to create vulkan device for global context");
-    }
+        // Device Creation info
+        VkDeviceCreateInfo DevCI{};
+        DevCI.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        DevCI.enabledExtensionCount = DevExt.size();
+        DevCI.ppEnabledExtensionNames = DevExt.data();
+        DevCI.queueCreateInfoCount = 2;
+        DevCI.pQueueCreateInfos = QueueCI;
 
-    uint32_t FormCount;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(gContext->PhysDevice, gWindow->Surface, &FormCount, nullptr);
-    std::vector<VkSurfaceFormatKHR> Formats(FormCount);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(gContext->PhysDevice, gWindow->Surface, &FormCount, Formats.data());
-
-    for(uint32_t i = 0; i < FormCount; i++)
-    {
-        if(Formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        // Create device
+        if((Err = vkCreateDevice(gContext->PhysDevice, &DevCI, nullptr, &gContext->Device)) != VK_SUCCESS)
         {
-            gWindow->SurfFormat = Formats[i];
-            break;
-        }
-    }
-
-    VkSwapchainCreateInfoKHR SwapCI{};
-    SwapCI.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    SwapCI.clipped = VK_FALSE;
-    SwapCI.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    SwapCI.imageArrayLayers = 1;
-    SwapCI.imageFormat = gWindow->SurfFormat.format;
-    SwapCI.imageColorSpace = gWindow->SurfFormat.colorSpace;
-    SwapCI.imageExtent = gWindow->Resolution;
-    SwapCI.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    SwapCI.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    SwapCI.minImageCount = 2;
-    SwapCI.surface = gWindow->Surface;
-    SwapCI.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    SwapCI.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
-
-    if((Err = vkCreateSwapchainKHR(gContext->Device, &SwapCI, nullptr, &gWindow->Swapchain)) != VK_SUCCESS)
-    {
-        throw std::runtime_error("Failed to create framework swapchain");
-    }
-
-    uint32_t SwpImgCount;
-    vkGetSwapchainImagesKHR(gContext->Device, gWindow->Swapchain, &SwpImgCount, nullptr);
-    gWindow->SwapchainImages.resize(SwpImgCount);
-    vkGetSwapchainImagesKHR(gContext->Device, gWindow->Swapchain, &SwpImgCount, gWindow->SwapchainImages.data());
-
-    for(uint32_t i = 0; i < gWindow->SwapchainImages.size(); i++)
-    {
-        VkImageView TmpView;
-
-        VkImageViewCreateInfo ViewCI{};
-        ViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        ViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        ViewCI.format = gWindow->SurfFormat.format;
-        ViewCI.image = gWindow->SwapchainImages[i];
-
-        ViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        ViewCI.subresourceRange.levelCount = 1;
-        ViewCI.subresourceRange.layerCount = 1;
-        ViewCI.subresourceRange.baseArrayLayer = 0;
-        ViewCI.subresourceRange.baseMipLevel = 0;
-
-        ViewCI.components.r = VK_COMPONENT_SWIZZLE_R;
-        ViewCI.components.g = VK_COMPONENT_SWIZZLE_G;
-        ViewCI.components.b = VK_COMPONENT_SWIZZLE_B;
-        ViewCI.components.a = VK_COMPONENT_SWIZZLE_A;
-
-        if((Err = vkCreateImageView(gContext->Device, &ViewCI, nullptr, &TmpView)) != VK_SUCCESS)
-        {
-            throw std::runtime_error("Failed to create image view for swapchain images");
+            throw std::runtime_error("Failed to create vulkan device for global context");
         }
 
-        gWindow->SwapchainAttachments.push_back(TmpView);
-    }
+        // retrieve device queues created during device creation
+        vkGetDeviceQueue(gContext->Device, GraphicsFamily, 0, &gContext->GraphicsQueue);
+        vkGetDeviceQueue(gContext->Device, ComputeFamily, 0, &gContext->ComputeQueue);
 
-    vkGetDeviceQueue(gContext->Device, GraphicsFamily, 0, &gContext->GraphicsQueue);
-    vkGetDeviceQueue(gContext->Device, ComputeFamily, 0, &gContext->ComputeQueue);
+    /* Swapchain creation*/
+
+        uint32_t FormCount;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(gContext->PhysDevice, gWindow->Surface, &FormCount, nullptr);
+        std::vector<VkSurfaceFormatKHR> Formats(FormCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(gContext->PhysDevice, gWindow->Surface, &FormCount, Formats.data());
+
+        for(uint32_t i = 0; i < FormCount; i++)
+        {
+            if(Formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            {
+                gWindow->SurfFormat = Formats[i];
+                break;
+            }
+        }
+
+        // Swapchain creation info
+        VkSwapchainCreateInfoKHR SwapCI{};
+        SwapCI.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        SwapCI.clipped = VK_FALSE;
+        SwapCI.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        SwapCI.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        SwapCI.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+
+        SwapCI.imageArrayLayers = 1;
+        SwapCI.imageFormat = gWindow->SurfFormat.format;
+        SwapCI.imageColorSpace = gWindow->SurfFormat.colorSpace;
+        SwapCI.imageExtent = gWindow->Resolution;
+        SwapCI.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        SwapCI.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+        SwapCI.minImageCount = 2;
+
+        SwapCI.surface = gWindow->Surface;
+
+
+        if((Err = vkCreateSwapchainKHR(gContext->Device, &SwapCI, nullptr, &gWindow->Swapchain)) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to create framework swapchain");
+        }
+
+        /* Retrieve swapchain images and store them in the global window structure */
+        uint32_t SwpImgCount;
+        vkGetSwapchainImagesKHR(gContext->Device, gWindow->Swapchain, &SwpImgCount, nullptr);
+        gWindow->SwapchainImages.resize(SwpImgCount);
+        vkGetSwapchainImagesKHR(gContext->Device, gWindow->Swapchain, &SwpImgCount, gWindow->SwapchainImages.data());
+
+        /* Iterate over retrieved swapchain images and create ImageViews for all of them. (Image views are stored in the gloal window structure as well) */
+        for(uint32_t i = 0; i < gWindow->SwapchainImages.size(); i++)
+        {
+            VkImageView TmpView;
+
+            VkImageViewCreateInfo ViewCI{};
+            ViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            ViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            ViewCI.format = gWindow->SurfFormat.format;
+            ViewCI.image = gWindow->SwapchainImages[i];
+
+            ViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            ViewCI.subresourceRange.levelCount = 1;
+            ViewCI.subresourceRange.layerCount = 1;
+            ViewCI.subresourceRange.baseArrayLayer = 0;
+            ViewCI.subresourceRange.baseMipLevel = 0;
+
+            ViewCI.components.r = VK_COMPONENT_SWIZZLE_R;
+            ViewCI.components.g = VK_COMPONENT_SWIZZLE_G;
+            ViewCI.components.b = VK_COMPONENT_SWIZZLE_B;
+            ViewCI.components.a = VK_COMPONENT_SWIZZLE_A;
+
+            if((Err = vkCreateImageView(gContext->Device, &ViewCI, nullptr, &TmpView)) != VK_SUCCESS)
+            {
+                throw std::runtime_error("Failed to create image view for swapchain images");
+            }
+
+            gWindow->SwapchainAttachments.push_back(TmpView);
+        }
+
+    Allocators::CommandPool* pTransferAgentPool = new Allocators::CommandPool();
+    pTransferAgentPool->Bake(false);
+
+    gTransferAgent = new TransferAgent(pTransferAgentPool);
 
     return true;
 }
@@ -226,9 +263,112 @@ void CloseWrapperFW()
     vkDestroyDevice(gContext->Device, nullptr);
     vkDestroyInstance(gContext->Instance, nullptr);
 
+    delete gTransferAgent;
     delete gContext;
     delete gWindow;
 }
+
+    void TransferAgent::Transfer(void* srcData, size_t srcSize, Resources::Buffer* dstBuff, size_t dstOffset)
+    {
+        VkBufferCopy tmp;
+        tmp.srcOffset = TransitTail;
+        tmp.dstOffset = dstOffset;
+        tmp.size = srcSize;
+
+        BufferCopies.push_back(tmp);
+
+        TransferBuffers.push_back(dstBuff);
+
+        memcpy(((uint8_t*)pTransitBuffer->pData)+TransitTail, srcData, srcSize);
+
+        TransitTail += srcSize;
+    }
+
+    void TransferAgent::Transfer(void* srcData, size_t srcSize, Resources::Image* dstImg, VkExtent3D Extent, VkOffset3D ImgOffset, VkImageSubresourceLayers SubResource, VkImageLayout Layout)
+    {
+        VkBufferImageCopy tmp;
+        tmp.bufferOffset = TransitTail;
+        tmp.imageExtent = Extent;
+        tmp.imageOffset = ImgOffset;
+        tmp.imageSubresource = SubResource;
+
+        BuffImageCopies.push_back(tmp);
+
+        TransferBuffImages.push_back(dstImg);
+        BufferImageLayouts.push_back(Layout);
+
+        memcpy(((uint8_t*)pTransitBuffer->pData)+TransitTail, srcData, srcSize);
+
+        TransitTail += srcSize;
+    }
+
+    void TransferAgent::Transfer(Resources::Image* srcImg, Resources::Image* dstImg, VkImageLayout srcLayout, VkImageLayout dstLayout, VkOffset3D srcOffset, VkOffset3D dstOffset, VkImageSubresourceLayers srcSubResource, VkImageSubresourceLayers dstSubResource, VkExtent3D Size)
+    {
+        VkImageCopy tmp;
+        tmp.srcOffset = srcOffset;
+        tmp.dstOffset = dstOffset;
+        tmp.srcSubresource = srcSubResource;
+        tmp.dstSubresource = dstSubResource;
+        tmp.extent = Size;
+
+        ImageCopies.push_back(tmp);
+
+        TransferImages.push_back(std::make_pair(srcImg, dstImg));
+        ImageLayouts.push_back(std::make_pair(srcLayout, dstLayout));
+    }
+
+    void TransferAgent::Flush()
+    {
+        pWaitThread = new std::thread([this] { FlushImpl(); });
+    }
+
+    void TransferAgent::AwaitFlush()
+    {
+        if(!bFlushing)
+        {
+            pWaitThread->join();
+        }
+
+        return;
+    }
+
+    void TransferAgent::FlushImpl()
+    {
+        if(pWaitThread != nullptr)
+        {
+            // implicitly wait on flush
+            AwaitFlush();
+        }
+
+        if(pCmdBuff == nullptr)
+        {
+            pCmdBuff = cmdAllocator->CreateBuffer();
+        }
+
+        pCmdBuff->Start();
+
+            for(uint32_t i = 0; i < BufferCopies.size(); i++)
+            {
+                vkCmdCopyBuffer(*pCmdBuff, *pTransitBuffer, *TransferBuffers[i], 1, &BufferCopies[i]);
+            }
+            for(uint32_t i = 0; i < BuffImageCopies.size(); i++)
+            {
+                vkCmdCopyBufferToImage(*pCmdBuff, *pTransitBuffer, TransferBuffImages[i]->Img, BufferImageLayouts[i], 1, &BuffImageCopies[i]);
+            }
+            for(uint32_t i = 0; i < ImageCopies.size(); i++)
+            {
+                vkCmdCopyImage(*pCmdBuff, TransferImages[i].first->Img, ImageLayouts[i].first, TransferImages[i].second->Img, ImageLayouts[i].second, 1, &ImageCopies[i]);
+            }
+
+        pCmdBuff->Stop();
+
+        cmdAllocator->Submit(pCmdBuff, pTransferFence);
+
+        bFlushing = true;
+        pTransferFence->Wait();
+        TransitTail = 0;
+        bFlushing = false;
+    }
 
 Context* GetContext()
 {
@@ -240,7 +380,12 @@ Window* GetWindow()
     return gWindow;
 }
 
-VkSemaphore CreateSemaphore()
+TransferAgent* GetTransferAgent()
+{
+    return gTransferAgent;
+}
+
+VkSemaphore CreateVulkanSemaphore()
 {
     VkSemaphore Ret;
 
@@ -252,23 +397,23 @@ VkSemaphore CreateSemaphore()
     return Ret;
 }
 
-VkFence CreateFence()
+Resources::Fence* CreateFence(std::string Name)
 {
-    VkFence Ret;
+    Resources::Fence* pRet = new Resources::Fence(Name);
 
     VkFenceCreateInfo FenceCI{};
     FenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 
-    vkCreateFence(GetContext()->Device, &FenceCI, nullptr, &Ret);
+    vkCreateFence(GetContext()->Device, &FenceCI, nullptr, pRet->GetFence());
 
-    return Ret;
+    return pRet;
 }
 
 void Allocate(Resources::Buffer& Buffer, bool bVisible)
 {
     VkMemoryRequirements MemReq;
 
-    vkGetBufferMemoryRequirements(gContext->Device, Buffer.Buff, &MemReq);
+    vkGetBufferMemoryRequirements(gContext->Device, Buffer, &MemReq);
 
     Buffer.pData = nullptr;
 
@@ -287,7 +432,7 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[i].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer.Buff, ApplicationMemory.HostHeaps[i].Memory, MemLoc);
+                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.HostHeaps[i].Memory, MemLoc);
                 bBound = true;
             }
         }
@@ -316,7 +461,7 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[EndIdx].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer.Buff, ApplicationMemory.HostHeaps[EndIdx].Memory, 0);
+                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.HostHeaps[EndIdx].Memory, 0);
             }
             else
             {
@@ -338,7 +483,7 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[EndIdx].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer.Buff, ApplicationMemory.HostHeaps[EndIdx].Memory, 0);
+                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.HostHeaps[EndIdx].Memory, 0);
             }
         }
     }
@@ -355,7 +500,7 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.LocalHeaps[i].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer.Buff, ApplicationMemory.LocalHeaps[i].Memory, MemLoc);
+                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.LocalHeaps[i].Memory, MemLoc);
                 bBound = true;
             }
         }
@@ -384,7 +529,7 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[EndIdx].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer.Buff, ApplicationMemory.LocalHeaps[EndIdx].Memory, 0);
+                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.LocalHeaps[EndIdx].Memory, 0);
             }
             else
             {
@@ -406,7 +551,7 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[EndIdx].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer.Buff, ApplicationMemory.LocalHeaps[EndIdx].Memory, 0);
+                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.LocalHeaps[EndIdx].Memory, 0);
             }
         }
     }
@@ -468,7 +613,7 @@ VkResult CreateBuffer(Resources::Buffer& Buffer, size_t Size, VkBufferUsageFlags
     BuffCI.size = Size;
     BuffCI.usage = Usage;
 
-    Ret = vkCreateBuffer(gContext->Device, &BuffCI, nullptr, &Buffer.Buff);
+    Ret = vkCreateBuffer(gContext->Device, &BuffCI, nullptr, Buffer);
 
     return Ret;
 }

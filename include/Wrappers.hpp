@@ -1,5 +1,5 @@
 #pragma once
-
+#include <iostream>
 #include <vector>
 #include <string>
 
@@ -18,6 +18,24 @@ struct PipeLocation
 
 namespace Resources
 {
+    class Fence
+    {
+        public:
+            Fence() : bInUse(false) {}
+            Fence(std::string Name) : bInUse(false), FenceName(Name) {};
+
+            /* Blocks execution until fence is signaled, then resets the fence for future use. */
+            void Wait();
+
+            VkFence* GetFence();
+
+            std::string FenceName;
+
+        private:
+            VkFence vkFence;
+            bool bInUse;
+    };
+
     /*! \brief A wrapper class that stores information about an object's binding, including a pointer to the heap/memory it's bound to */
     class Allocation
     {
@@ -52,11 +70,15 @@ namespace Resources
     public:
         ~Buffer();
 
-        VkBuffer Buff;
+        operator VkBuffer() { return Buff; }
+        operator VkBuffer*() { return &Buff; }
 
         Allocation Alloc;
 
         void* pData = nullptr;
+
+    private:
+        VkBuffer Buff;
     };
 
     /*! \brief A wrapper around command buffers.
@@ -80,7 +102,7 @@ namespace Resources
             return &cmdBuffer;
         }
 
-        VkFence Fence;
+        Fence cmdFence;
 
     private:
         VkCommandPool* pPool;
@@ -97,7 +119,7 @@ namespace Resources
 
         VkDescriptorSetLayout Layout = VK_NULL_HANDLE;
 
-        VkDescriptorSetLayoutBinding* GetBindings(uint32_t& Count) { Count = Bindings.size(); return Bindings.data(); };
+        VkDescriptorSetLayoutBinding* GetBindings(uint32_t& Count) { Count = Bindings.size(); return Bindings.data(); }
 
     private:
         std::vector<VkDescriptorSetLayoutBinding> Bindings;
@@ -125,12 +147,12 @@ namespace Resources
         DescriptorLayout* DescLayout; //! > A pointer to the descriptor layout used to create this descriptor set.
 
         //! \brief Wraps descriptor writes using a custom struct.
-        void Update(DescUpdate UpdateInfo);
+        void Update(DescUpdate* pUpdateInfos, size_t Count);
 
         VkDescriptorPool* pPool;
     };
 
-    // Wraps FrameBufferInformation
+    // Wraps FrameBuffer Information and creation
     class FrameBuffer
     {
     public:
@@ -138,9 +160,9 @@ namespace Resources
 
         operator VkFramebuffer*() { return &Framebuff; }
 
-        void AddBuffer(VkImageCreateInfo ImgCI);
-        void AddBuffer(VkImageView ImgView);
-        void Bake(VkRenderPass Renderpass);
+        void AddBuffer(VkImageCreateInfo ImgCI, VkImageLayout InitLayout);
+        void AddBuffer(VkImageView ImgView, VkImageLayout InitLayout);
+        void Bake(VkRenderPass Renderpass, VkCommandBuffer* pCmdBuffer);
 
     private:
         VkFramebuffer Framebuff;
@@ -149,6 +171,7 @@ namespace Resources
         std::vector<VkImage> Attachments;
         std::vector<VkDeviceMemory> AttachmentAllocations;
         std::vector<VkImageView> AttachmentViews;
+        std::vector<VkImageLayout> AttachmentLayouts;
     };
 }
 
@@ -159,9 +182,7 @@ namespace Allocators
     public:
         ~DescriptorPool();
 
-        void SetLayout(Resources::DescriptorLayout* Layout) { DescLayout = Layout; };
-
-        void Bake(uint32_t SetCount);
+        void Bake(Resources::DescriptorLayout* pLayout, uint32_t SetCount);
 
         Resources::DescriptorSet* CreateSet();
 
@@ -182,7 +203,7 @@ namespace Allocators
         ~CommandPool();
 
         void Bake(bool bCompute);
-        void Submit(Resources::CommandBuffer* pCmdBuffer, VkFence* pFence, uint32_t SignalSemCount = 0, VkSemaphore* SignalSemaphores = nullptr, uint32_t WaitSemCount = 0, VkSemaphore* WaitSemaphores = nullptr);
+        void Submit(Resources::CommandBuffer* pCmdBuffer, Resources::Fence* pFence, uint32_t SignalSemCount = 0, VkSemaphore* SignalSemaphores = nullptr, uint32_t WaitSemCount = 0, VkSemaphore* WaitSemaphores = nullptr);
         Resources::CommandBuffer* CreateBuffer();
 
         VkCommandPool cmdPool;
@@ -320,10 +341,33 @@ private:
     std::vector<VkDescriptorSetLayout> Descriptors;
 };
 
+class ComputePipeline
+{
+    public:
+        ~ComputePipeline();
+
+        operator VkPipeline() { return Pipe; }
+
+        void Bind(VkCommandBuffer* pCmdBuffer);
+
+        void Bake(const char* Comp);
+        void AddDescriptor(Resources::DescriptorLayout* pDesc) { Descriptors.push_back(pDesc->Layout); }
+
+        VkPipelineLayout PipeLayout;
+
+    private:
+        VkPipeline Pipe;
+
+        VkShaderModule CompShader;
+
+        std::vector<VkDescriptorSetLayout> Descriptors;
+};
+
 struct Context
 {
     VkInstance Instance;
     VkPhysicalDevice PhysDevice;
+    VkPhysicalDeviceFeatures PhysDeviceFeatures;
     VkDevice Device;
 
     uint32_t Local;

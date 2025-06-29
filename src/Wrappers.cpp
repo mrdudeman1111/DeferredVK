@@ -5,6 +5,22 @@
 
 namespace Resources
 {
+    void Fence::Wait()
+    {
+        vkWaitForFences(GetContext()->Device, 1, &vkFence, true, UINT64_MAX);
+        vkResetFences(GetContext()->Device, 1, &vkFence);
+    }
+
+    VkFence* Fence::GetFence()
+    {
+        if(bInUse)
+        {
+            std::cout << "Fence is being obtained, but is currently in use. You should probably reset the fence using Fence::Wait() before reobtaining.\n";
+        }
+
+        return &vkFence;
+    }
+
     Image::~Image()
     {
         vkDestroyImage(GetContext()->Device, Img, nullptr);
@@ -84,24 +100,34 @@ namespace Resources
         vkFreeDescriptorSets(GetContext()->Device, *pPool, 1, &DescSet);
     }
 
-    void DescriptorSet::Update(DescUpdate UpdateInfo)
+    void DescriptorSet::Update(DescUpdate* pUpdateInfos, size_t Count)
     {
-        VkWriteDescriptorSet WriteInfo{};
-        WriteInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        WriteInfo.descriptorType = UpdateInfo.DescType;
-        WriteInfo.descriptorCount = UpdateInfo.DescCount;
-        WriteInfo.dstArrayElement = UpdateInfo.DescIndex;
-        WriteInfo.dstBinding = UpdateInfo.Binding;
-        WriteInfo.dstSet = DescSet;
+        std::vector<VkWriteDescriptorSet> WriteInfos;
+        std::vector<VkDescriptorBufferInfo> WriteBuffers;
 
-        VkDescriptorBufferInfo BuffInfo{};
-        BuffInfo.buffer = UpdateInfo.pBuff->Buff;
-        BuffInfo.offset = UpdateInfo.Offset;
-        BuffInfo.range = UpdateInfo.Range;
+        for(uint32_t i = 0; i < Count; i++)
+        {
+            VkWriteDescriptorSet WriteInfo{};
+            WriteInfo.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            WriteInfo.descriptorType = pUpdateInfos[i].DescType;
+            WriteInfo.descriptorCount = pUpdateInfos[i].DescCount;
+            WriteInfo.dstArrayElement = pUpdateInfos[i].DescIndex;
+            WriteInfo.dstBinding = pUpdateInfos[i].Binding;
+            WriteInfo.dstSet = DescSet;
 
-        WriteInfo.pBufferInfo = &BuffInfo;
+            VkDescriptorBufferInfo BuffInfo{};
+            BuffInfo.buffer = *pUpdateInfos[i].pBuff;
+            BuffInfo.offset = pUpdateInfos[i].Offset;
+            BuffInfo.range = pUpdateInfos[i].Range;
 
-        vkUpdateDescriptorSets(GetContext()->Device, 1, &WriteInfo, 0, nullptr);
+            WriteBuffers.push_back(BuffInfo);
+
+            WriteInfo.pBufferInfo = &WriteBuffers[i];
+
+            WriteInfos.push_back(WriteInfo);
+        }
+
+        vkUpdateDescriptorSets(GetContext()->Device, WriteInfos.size(), WriteInfos.data(), 0, nullptr);
     }
 
     FrameBuffer::~FrameBuffer()
@@ -109,17 +135,19 @@ namespace Resources
         vkDestroyFramebuffer(GetContext()->Device, Framebuff, nullptr);
     }
 
-    void FrameBuffer::AddBuffer(VkImageCreateInfo ImgInf)
+    void FrameBuffer::AddBuffer(VkImageCreateInfo ImgInf, VkImageLayout InitLayout)
     {
         AttachmentInfos.push_back(ImgInf);
+        AttachmentLayouts.push_back(InitLayout);
     }
 
-    void FrameBuffer::AddBuffer(VkImageView ImgView)
+    void FrameBuffer::AddBuffer(VkImageView ImgView, VkImageLayout InitLayout)
     {
         AttachmentViews.push_back(ImgView);
+        AttachmentLayouts.push_back(InitLayout);
     }
 
-    void FrameBuffer::Bake(VkRenderPass Renderpass)
+    void FrameBuffer::Bake(VkRenderPass Renderpass, VkCommandBuffer* pCmdBuffer)
     {
         VkResult Err;
 
@@ -157,6 +185,8 @@ namespace Resources
             Attachments.push_back(Tmp);
         }
 
+        std::vector<VkImageMemoryBarrier> MemoryBarriers = {};
+
         for(uint32_t i = 0; i < AttachmentInfos.size(); i++)
         {
             VkImageView tmpView;
@@ -190,6 +220,19 @@ namespace Resources
             }
 
             AttachmentViews.push_back(tmpView);
+
+            MemoryBarriers.push_back({});
+            MemoryBarriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            MemoryBarriers[i].image = Attachments[i];
+            MemoryBarriers[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            MemoryBarriers[i].newLayout = AttachmentLayouts[i];
+            MemoryBarriers[i].srcAccessMask = VK_ACCESS_NONE;
+
+            MemoryBarriers[i].subresourceRange.aspectMask = ViewCI.subresourceRange.aspectMask;
+            MemoryBarriers[i].subresourceRange.baseArrayLayer = 0;
+            MemoryBarriers[i].subresourceRange.baseMipLevel = 0;
+            MemoryBarriers[i].subresourceRange.layerCount = 1;
+            MemoryBarriers[i].subresourceRange.levelCount = 1;
         }
 
         VkFramebufferCreateInfo FbCI{};
@@ -205,6 +248,8 @@ namespace Resources
         {
             throw std::runtime_error("Failed to create framebuffer");
         }
+
+        vkCmdPipelineBarrier(*pCmdBuffer, VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_NONE, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, MemoryBarriers.size(), MemoryBarriers.data());
     }
 }
 
@@ -215,9 +260,11 @@ namespace Allocators
         vkDestroyDescriptorPool(GetContext()->Device, DescPool, nullptr);
     }
 
-    void DescriptorPool::Bake(uint32_t SetCount)
+    void DescriptorPool::Bake(Resources::DescriptorLayout* pLayout, uint32_t SetCount)
     {
         VkResult Err;
+
+        DescLayout = pLayout;
 
         uint32_t SizeCount;
         VkDescriptorSetLayoutBinding* BindingSizes = DescLayout->GetBindings(SizeCount);
@@ -288,7 +335,7 @@ namespace Allocators
         bCompute = bCompute;
     }
 
-    void CommandPool::Submit(Resources::CommandBuffer* pCmdBuffer, VkFence* pFence, uint32_t SignalSemCount, VkSemaphore* SignalSemaphores, uint32_t WaitSemCount, VkSemaphore* WaitSemaphores)
+    void CommandPool::Submit(Resources::CommandBuffer* pCmdBuffer, Resources::Fence* pFence, uint32_t SignalSemCount, VkSemaphore* SignalSemaphores, uint32_t WaitSemCount, VkSemaphore* WaitSemaphores)
     {
         VkResult Err;
 
@@ -303,7 +350,8 @@ namespace Allocators
 
         if(pFence != nullptr)
         {
-            vkQueueSubmit(GetContext()->GraphicsQueue, 1, &SubInf, *pFence);
+            VkFence* SubmitFence = pFence->GetFence();
+            vkQueueSubmit(GetContext()->GraphicsQueue, 1, &SubInf, *SubmitFence);
         }
         else
         {
@@ -320,7 +368,7 @@ namespace Allocators
         FenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 
         Context* pCtx = GetContext();
-        vkCreateFence(pCtx->Device, &FenceCI, nullptr, &Ret->Fence);
+        vkCreateFence(pCtx->Device, &FenceCI, nullptr, Ret->cmdFence.GetFence());
 
         return Ret;
     }
@@ -616,6 +664,78 @@ void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const 
 void Pipeline::Bind(VkCommandBuffer* pCmdBuffer)
 {
     vkCmdBindPipeline(*pCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipe);
+}
+
+ComputePipeline::~ComputePipeline()
+{
+    vkDestroyShaderModule(GetContext()->Device, CompShader, nullptr);
+    vkDestroyPipelineLayout(GetContext()->Device, PipeLayout, nullptr);
+    vkDestroyPipeline(GetContext()->Device, Pipe, nullptr);
+}
+
+void ComputePipeline::Bake(const char* Comp)
+{
+    VkResult Err;
+
+    Context* pCtx = GetContext();
+
+    std::string CompPath = shader_path;
+    CompPath += Comp;
+    vkDestroyPipeline(GetContext()->Device, Pipe, nullptr);
+
+    std::ifstream cComp(CompPath, std::ios::binary);
+
+    if(!cComp.is_open())
+    {
+        throw std::runtime_error("Failed to open vertex shader to open pipeline");
+    }
+
+    cComp.seekg(0, cComp.end);
+    size_t CompSize = cComp.tellg();
+    cComp.seekg(0, cComp.beg);
+
+    uint32_t CompCodeSize = CompSize/4;
+    if(CompCodeSize*CompSize < 4) CompCodeSize++; // ceil if needed.
+
+    uint32_t* CompCode = new uint32_t[CompCodeSize];
+
+    cComp.read(reinterpret_cast<char*>(CompCode), CompSize);
+
+    VkShaderModuleCreateInfo CompCI{};
+    CompCI.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    CompCI.codeSize = CompSize;
+    CompCI.pCode = CompCode;
+
+    if((Err = vkCreateShaderModule(pCtx->Device, &CompCI, nullptr, &CompShader)) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create shader module for pipeline");
+    }
+
+    VkPipelineShaderStageCreateInfo ShaderStage{};
+    ShaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    ShaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    ShaderStage.pName = "main";
+    ShaderStage.module = CompShader;
+
+    VkPipelineLayoutCreateInfo LayCI{};
+    LayCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    LayCI.setLayoutCount = Descriptors.size();
+    LayCI.pSetLayouts = Descriptors.data();
+
+    if((Err = vkCreatePipelineLayout(pCtx->Device, &LayCI, nullptr, &PipeLayout)) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create pipeline layout");
+    }
+
+    VkComputePipelineCreateInfo CompPipeCI{};
+    CompPipeCI.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    CompPipeCI.layout = PipeLayout;
+    CompPipeCI.stage = ShaderStage;
+
+    if((Err = vkCreateComputePipelines(pCtx->Device, VK_NULL_HANDLE, 1, &CompPipeCI, nullptr, &Pipe)) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create compute pipeline\n");
+    }
 }
 
 uint32_t Window::GetNextFrame(VkSemaphore& Semaphore)

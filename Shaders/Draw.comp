@@ -1,0 +1,76 @@
+#version 440
+
+// sources used:
+// https://github.com/KhronosGroup/Vulkan-Samples/tree/main/samples/performance/multi_draw_indirect
+// https://medium.com/@Lucmomber/two-pass-hierarchical-z-buffer-occlusion-culling-93171c5a9808
+// https://github.com/SaschaWillems/Vulkan/blob/master/examples/indirectdraw
+// https://docs.vulkan.org/samples/latest/samples/performance/multi_draw_indirect/README.html
+
+layout(local_size_x = 64) in;
+
+struct VkDrawIndexedIndirectCommand
+{
+    uint IndexCount;
+    uint InstanceCount;
+    uint FirstIndex;
+    int VertexOffset;
+    uint FirstInstance;
+};
+
+struct CullBox
+{
+    vec2 Vertices[4];
+};
+
+struct CullBounds
+{
+    float Width;
+    float Height;
+};
+
+ // scene globals and draw commands buffer
+layout(std140, set = 0, binding = 0) uniform Cam_t
+{
+    mat4 View;
+    mat4 Proj;
+    mat4 ProjView;
+    vec4 Planes[6];
+} Camera;
+
+layout(std140, set = 0, binding = 1) buffer readonly globInstStruct
+{
+    mat4 Transforms[];
+    //uint IDs[];
+} SceneBuffer;
+
+
+//layout(std140, set = 0, binding = 3) buffer readonly globInstBounds
+// {
+//     CullBounds Bounds[];
+// } Bounds;
+
+layout(std140, set = 1, binding = 0) buffer Draw_t
+{
+    VkDrawIndexedIndirectCommand Draw;
+    uint MeshBounds;
+    uint InstanceCount;
+    uint MeshInstanceIndices[]; // manually map the instances to the global instance structure. (some meshes may have instances at indices like 1, 4, 12, 48, 49, 61, 76, etc. This lists the instances in the global instance buffer that represents this mesh's instances.)
+} MeshDraw;
+
+void FrustrumCull(mat4 Mat, mat4 ModelTransform)
+{
+    // for(uint i = 0; i < )
+}
+
+void main()
+{
+    uint id = gl_GlobalInvocationID.x;
+
+    if(id >= MeshDraw.InstanceCount)
+    {
+        return;
+    }
+
+    MeshDraw.MeshInstanceIndices[MeshDraw.Draw.InstanceCount] = id;
+    MeshDraw.Draw.InstanceCount += 1;
+}

@@ -9,7 +9,7 @@
 
 tinygltf::TinyGLTF MeshLoader;
 
-Resources::DescriptorLayout pbrMesh::MeshLayout = {};
+Resources::DescriptorLayout* Instanced::pMeshPassLayout = {};
 
 bool ExtractVtxComp(tinygltf::Model& Model, tinygltf::Primitive& Prim, std::string CompName, int CompCount, std::vector<float>& OutArr)
 {
@@ -40,7 +40,7 @@ bool ExtractIdx(tinygltf::Model& Model, tinygltf::Primitive& Prim, std::vector<u
     tinygltf::BufferView& BuffView = Model.bufferViews[Accessor.bufferView];
     tinygltf::Buffer& Buffer = Model.buffers[BuffView.buffer];
 
-    uint8_t* pData = Buffer.data.data() + BuffView.byteOffset + Accessor.byteOffset;
+    uint16_t* pData = (uint16_t*)(Buffer.data.data() + BuffView.byteOffset + Accessor.byteOffset);
 
     Indices.resize(Accessor.count);
 
@@ -48,18 +48,32 @@ bool ExtractIdx(tinygltf::Model& Model, tinygltf::Primitive& Prim, std::vector<u
     {
         for(uint32_t i = 0; i < Accessor.count; i++)
         {
-            Indices[i] = (uint32_t) (*(uint16_t*)pData[i]);
+            Indices[i] = (uint32_t)pData[i];
         }
     }
     else
     {
         for(uint32_t i = 0; i < Accessor.count; i++)
         {
-            Indices[i] = (uint32_t) (*(uint16_t*)pData[i]);
+            Indices[i] = (uint32_t)pData[i];
         }
     }
 
     return true;
+}
+
+void Instanced::Update()
+{
+    TransferAgent* pAgent = GetTransferAgent();
+    uint32_t Zero = 0;
+    pAgent->Transfer(&Zero, sizeof(uint32_t), &MeshPassBuffer, offsetof(VkDrawIndexedIndirectCommand, instanceCount));
+
+    if(bDirty)
+    {
+        uint32_t InstCount = Instances.size();
+        pAgent->Transfer(&InstCount, sizeof(InstCount), &MeshPassBuffer, sizeof(VkDrawIndexedIndirectCommand));
+        bDirty = false;
+    }
 }
 
 pbrMesh::pbrMesh()
@@ -92,45 +106,128 @@ pbrMesh::pbrMesh()
     }
 }
 
-void pbrMesh::Draw(VkCommandBuffer& cmdBuff, VkPipelineLayout Layout, uint32_t MeshDescriptorIdx)
+void pbrMesh::Bake()
 {
-    vkCmdBindDescriptorSets(cmdBuff, VK_PIPELINE_BIND_POINT_GRAPHICS, Layout, MeshDescriptorIdx, 1, &MeshDescriptor.DescSet, 0, nullptr);
+    CreateBuffer(MeshPassBuffer, sizeof(VkDrawIndexedIndirectCommand)+(sizeof(uint32_t)*MAX_RENDERABLE_INSTANCES)+2, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    Allocate(MeshPassBuffer, false);
 
-    vkCmdBindVertexBuffers(cmdBuff, 0, 1, &MeshBuffer.Buff, 0);
-    vkCmdBindIndexBuffer(cmdBuff, MeshBuffer.Buff, IndexOffset, VK_INDEX_TYPE_UINT32);
+    VkDrawIndexedIndirectCommand tmp;
+    tmp.firstIndex = 0;
+    tmp.firstInstance = 0;
+    tmp.indexCount = IndexCount;
+    tmp.instanceCount = 0;
+    tmp.vertexOffset = 0;
 
-    vkCmdDrawIndexed(cmdBuff, Indices.size(), 1, 0, 0, 0);
+    GetTransferAgent()->Transfer(&tmp, sizeof(tmp), &MeshPassBuffer, 0);
+}
+
+void pbrMesh::AddInstance(uint32_t InstIdx)
+{
+    Instances.push_back(InstIdx);
+    bDirty = true;
+}
+
+void pbrMesh::GenDraws(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout)
+{
+    vkCmdBindDescriptorSets(*pCmdBuff, VK_PIPELINE_BIND_POINT_COMPUTE, Layout, 1, 1, &pMeshPassSet->DescSet, 0, nullptr);
+    vkCmdDispatch(*pCmdBuff, (uint32_t)std::clamp(std::ceil(Instances.size()/32.f), 0.f, 64.f), 1, 1);
+}
+
+void pbrMesh::DrawInstances(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout)
+{
+    /*
+        vkCmdBindDescriptorSets(cmdBuff, VK_PIPELINE_BIND_POINT_GRAPHICS, Layout, MeshDescriptorIdx, 1, &MeshSet.DescSet, 0, nullptr);
+    */
+    vkCmdBindVertexBuffers(*pCmdBuff, 0, 1, MeshBuffer, 0);
+    vkCmdBindIndexBuffer(*pCmdBuff, MeshBuffer, IndexOffset, VK_INDEX_TYPE_UINT32);
+
+    vkCmdDrawIndexedIndirect(*pCmdBuff, MeshPassBuffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
 
     return;
+}
+
+void Drawable::SetTransform(glm::vec3 Position, glm::vec3 Rotation, glm::vec3 Scale)
+{
+    glm::mat4 tmp = glm::mat4(1.f);
+
+    tmp = glm::scale(tmp, Scale);
+
+    // Apply Yaw, pitch, then roll.
+    tmp = glm::rotate(tmp, Rotation.y, glm::vec3(0.f, 1.f, 0.f));
+    tmp = glm::rotate(tmp, Rotation.x, glm::vec3(1.f, 0.f, 0.f));
+    tmp = glm::rotate(tmp, Rotation.z, glm::vec3(0.f, 0.f, 1.f));
+
+    tmp = glm::translate(tmp, Position);
+
+    Transform = tmp;
+}
+
+void Drawable::Translate(glm::vec3 Translation)
+{
+    Transform = glm::translate(Transform, Translation);
+}
+
+void Drawable::Rotate(glm::vec3 Rotation)
+{
+    Transform = glm::rotate(Transform, Rotation.y, glm::vec3(0.f, 1.f, 0.f));
+    Transform = glm::rotate(Transform, Rotation.x, glm::vec3(1.f, 0.f, 0.f));
+    Transform = glm::rotate(Transform, Rotation.z, glm::vec3(0.f, 0.f, -1.f));
+}
+
+void Drawable:: Scale(glm::vec3 Scale)
+{
+    Transform = glm::scale(Transform, Scale);
+}
+
+void Drawable::UpdateTransform()
+{
+    if(bStatic)
+    {
+        GetTransferAgent()->Transfer(&Transform, sizeof(glm::mat4), pSceneBuffer, ObjIdx*sizeof(glm::mat4));
+    }
+    else
+    {
+        memcpy(((glm::mat4*)pSceneBuffer->pData)+ObjIdx, &Transform, sizeof(Transform));
+    }
+}
+
+void PipeStage::UpdateDraws(Resources::CommandBuffer* pCmdBuffer, VkPipelineLayout ComputeLayout)
+{
+    for(uint32_t i = 0; i < Meshes.size(); i++)
+    {
+        Meshes[i]->GenDraws(*pCmdBuffer, ComputeLayout);
+    }
 }
 
 void PipeStage::Draw(Resources::CommandBuffer* pCmdBuffer)
 {
     vkCmdBindPipeline(*pCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *Pipe);
 
-    for(uint32_t i = 0; i < Drawables.size(); i++)
+    for(uint32_t i = 0; i < Meshes.size(); i++)
     {
-        Drawables[i]->Draw(*pCmdBuffer);
+        Meshes[i]->DrawInstances(*pCmdBuffer, Pipe->PipeLayout);
     }
 }
 
-void FrameBufferChain::Bake(RenderPass* pPass)
+void FrameBufferChain::Bake(RenderPass* pPass, VkCommandBuffer* pCmdBuffer)
 {
     VkResult Err;
 
     Context* pCtx = GetContext();
     FBCount = GetWindow()->SwapchainAttachments.size();
 
+    FrameBuffers.resize(FBCount);
+
     for(uint32_t i = 0; i < FBCount; i++)
     {
-        FrameBuffers[i].AddBuffer(GetWindow()->SwapchainAttachments[i]);
+        FrameBuffers[i].AddBuffer(GetWindow()->SwapchainAttachments[i], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
         for(uint32_t x = 0; x < AttachmentDescs.size(); x++)
         {
-            FrameBuffers[i].AddBuffer(AttachmentDescs[x]);
+            FrameBuffers[i].AddBuffer(AttachmentDescs[x], AttachmentDescs[x].initialLayout);
         }
 
-        FrameBuffers[i].Bake(pPass->rPass);
+        FrameBuffers[i].Bake(pPass->rPass, pCmdBuffer);
     }
 
     return;
@@ -159,47 +256,136 @@ SceneRenderer::SceneRenderer()
     SceneProfile.AddAttribute(0, VK_FORMAT_R32G32B32_SFLOAT, 1, sizeof(glm::vec3));   // Normal
     SceneProfile.AddAttribute(0, VK_FORMAT_R32G32_SFLOAT, 2, sizeof(glm::vec3)*2);    // UV
 
-    DescriptorHeaps[SceneCam->WvpLayout.Layout].SetLayout(&SceneCam->WvpLayout);
-    DescriptorHeaps[SceneCam->WvpLayout.Layout].Bake(10); // max camera count of 10
+    SceneProfile.AddBinding(1, sizeof(uint32_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+    SceneProfile.AddAttribute(1, VK_FORMAT_R32_UINT, 3, 0); // Artificial Inst Idx
 
-    SceneCam->pWvpUniform = DescriptorHeaps[SceneCam->WvpLayout.Layout].CreateSet();
+    GraphicsHeap.Bake(false);
+    ComputeHeap.Bake(true);
+    TransferHeap.Bake(false);
 
-    Resources::DescUpdate UpdateInfo{};
-    UpdateInfo.DescType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    UpdateInfo.Binding = 0;
-    UpdateInfo.DescCount = 1;
-    UpdateInfo.DescIndex = 0;
+    VkDescriptorSetLayoutBinding MeshPassLayoutBinding{};
+    MeshPassLayoutBinding.binding = 0;
+    MeshPassLayoutBinding.descriptorCount = 1;
+    MeshPassLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    MeshPassLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    UpdateInfo.pBuff = &SceneCam->WvpBuffer;
-    UpdateInfo.Range = sizeof(glm::mat4)*3;
-    UpdateInfo.Offset = 0;
+    Instanced::pMeshPassLayout = new Resources::DescriptorLayout();
+    Instanced::pMeshPassLayout->AddBinding(MeshPassLayoutBinding);
+    DescriptorHeaps[Instanced::pMeshPassLayout->Layout].Bake(Instanced::pMeshPassLayout, 1000);
 
-    SceneCam->pWvpUniform->Update(UpdateInfo);
+    CreateBuffer(StaticSceneBuffer, sizeof(glm::mat4)*10000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    Allocate(StaticSceneBuffer, false);
+
+    CreateBuffer(DynamicSceneBuffer, sizeof(glm::mat4)*5000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    Allocate(DynamicSceneBuffer, true);
+    Map(&DynamicSceneBuffer);
+
+    pSceneDescriptorLayout = new Resources::DescriptorLayout();
+
+    VkDescriptorSetLayoutBinding SceneBindings[3] = {};
+    SceneBindings[0].binding = 0;
+    SceneBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    SceneBindings[0].descriptorCount = 1;
+    SceneBindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+    SceneBindings[1].binding = 1;
+    SceneBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    SceneBindings[1].descriptorCount = 1;
+    SceneBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+    SceneBindings[2].binding = 2;
+    SceneBindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    SceneBindings[2].descriptorCount = 1;
+    SceneBindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+    /*
+    SceneBindings[3].binding = 3;
+    SceneBindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    SceneBindings[3].descriptorCount = 1;
+    SceneBindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+    */
+
+    pSceneDescriptorLayout->AddBinding(SceneBindings[0]);
+    pSceneDescriptorLayout->AddBinding(SceneBindings[1]);
+    pSceneDescriptorLayout->AddBinding(SceneBindings[2]);
+    //pSceneDescriptorLayout->AddBinding(SceneBindings[3]);
+
+    DescriptorHeaps[pSceneDescriptorLayout->Layout].Bake(pSceneDescriptorLayout, 2);
+    pSceneDescriptorSet = DescriptorHeaps[pSceneDescriptorLayout->Layout].CreateSet();
+
+    Resources::DescUpdate SceneUpdates[3] = {};
+
+    SceneUpdates[0].DescType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    SceneUpdates[0].DescCount = 1;
+    SceneUpdates[0].Binding = 0;
+    SceneUpdates[0].DescIndex = 0;
+
+    SceneUpdates[0].pBuff = &SceneCam->WvpBuffer;
+    SceneUpdates[0].Range = (sizeof(glm::mat4)*3) + (sizeof(glm::vec4)*6);
+    SceneUpdates[0].Offset = 0;
+
+    SceneUpdates[1].DescType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    SceneUpdates[1].Binding = 0;
+    SceneUpdates[1].DescCount = 1;
+    SceneUpdates[1].DescIndex = 0;
+
+    SceneUpdates[1].pBuff = &StaticSceneBuffer;
+    SceneUpdates[1].Range = StaticSceneBuffer.Alloc.Size;
+    SceneUpdates[1].Offset = 0;
+
+    SceneUpdates[2].DescType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    SceneUpdates[2].Binding = 0;
+    SceneUpdates[2].DescCount = 1;
+    SceneUpdates[2].DescIndex = 0;
+
+    SceneUpdates[2].pBuff = &DynamicSceneBuffer;
+    SceneUpdates[2].Range = DynamicSceneBuffer.Alloc.Size;
+    SceneUpdates[2].Offset = 0;
+
+    pSceneDescriptorSet->Update(SceneUpdates, 3);
+
+    DrawPipeline.AddDescriptor(pSceneDescriptorLayout);
+    DrawPipeline.AddDescriptor(Instanced::pMeshPassLayout);
+
+    DrawPipeline.Bake("Draw.spv");
+}
+
+SceneRenderer::~SceneRenderer()
+{
+    DescriptorHeaps.clear();
+
+    delete pSceneDescriptorLayout;
+    delete pSceneDescriptorSet;
+
+    delete Instanced::pMeshPassLayout;
+
+    CloseWrapperFW();
 }
 
 Pipeline* SceneRenderer::CreatePipeline(std::string PipeName, uint32_t SubpassIdx, const char* VtxPath, const char* FragPath, uint32_t BlendAttCount, VkPipelineColorBlendAttachmentState* BlendAttachments, uint32_t DescriptorCount, Resources::DescriptorLayout* pDescriptors, PipelineProfile* pProfile)
 {
-    if(PipeStages[PipeName]->Pipe == nullptr)
+    if(PipeStages.count(PipeName) == 0)
     {
-        Pipeline* Ret = new Pipeline();
+        PipeStages[PipeName] = new PipeStage();
+        Pipeline* Pipe = new Pipeline();
 
-        Ret->AddDescriptor(&SceneCam->WvpLayout);
+        Pipe->AddDescriptor(pSceneDescriptorLayout);
 
         for(uint32_t i = 0; i < DescriptorCount; i++)
         {
-            Ret->AddDescriptor(&pDescriptors[i]);
+            Pipe->AddDescriptor(&pDescriptors[i]);
         }
 
         for(uint32_t i = 0; i < BlendAttCount; i++)
         {
-            Ret->AddAttachmentBlending(BlendAttachments[i]);
+            Pipe->AddAttachmentBlending(BlendAttachments[i]);
         }
 
-        Ret->SetProfile(SceneProfile);
+        Pipe->SetProfile(SceneProfile);
 
-        Ret->Bake(&ScenePass, SubpassIdx, VtxPath, FragPath);
+        Pipe->Bake(&ScenePass, SubpassIdx, VtxPath, FragPath);
 
-        PipeStages[PipeName]->Pipe = Ret;
+        PipeStages[PipeName]->Pipe = Pipe;
 
         uint32_t i = 0;
 
@@ -213,8 +399,7 @@ Pipeline* SceneRenderer::CreatePipeline(std::string PipeName, uint32_t SubpassId
         }
 
         PassStages[SubpassIdx].PipeStages.push_back(PipeStages[PipeName]);
-
-        return Ret;
+        return Pipe;
     }
     else
     {
@@ -225,99 +410,36 @@ Pipeline* SceneRenderer::CreatePipeline(std::string PipeName, uint32_t SubpassId
     return nullptr;
 }
 
-pbrMesh* SceneRenderer::CreateDrawable(std::string Path, std::string PipeName)
+void SceneRenderer::AddMesh(pbrMesh* pMesh, std::string PipeName)
 {
-    pbrMesh* Ret = new pbrMesh();
- 
-    tinygltf::Model tmpModel;
+    pMesh->pMeshPassSet = DescriptorHeaps[pMesh->pMeshPassLayout->Layout].CreateSet();
+    PipeStages[PipeName]->Meshes.push_back(pMesh);
+}
 
-    std::string Err, Warn;
+Drawable* SceneRenderer::CreateDrawable(pbrMesh* Mesh, bool bDynamic)
+{
+    Drawable* pRet;
 
-    if(MeshLoader.LoadASCIIFromFile(&tmpModel, &Err, &Warn, Path))
+    pRet->pMesh = Mesh;
+
+    if(bDynamic)
     {
-        throw std::runtime_error("Failed to load mesh file " + Path);
+        pRet = new Drawable(&DynamicSceneBuffer);
+        pRet->ObjIdx = DynamicIter;
+        DynamicIter++;
+        pRet->bStatic = false;
+    }
+    else
+    {
+        pRet = new Drawable(&StaticSceneBuffer);
+        pRet->ObjIdx = StaticIter;
+        StaticIter++;
+        pRet->bStatic = true;
     }
 
-    if(tmpModel.scenes.empty())
-    {
-        std::cout << "Tried to create drawable mesh, but couldn't due to an empty scene.";
-        return nullptr;
-    }
+    Mesh->AddInstance(pRet->ObjIdx);
 
-    tinygltf::Scene& MeshScene = tmpModel.scenes[(tmpModel.defaultScene > -1) ? tmpModel.defaultScene : 0];
-    for(int NodeIdx : MeshScene.nodes)
-    {
-        // skip the node if there is no mesh
-        if(tmpModel.nodes[NodeIdx].mesh < 0) continue;
-
-        tinygltf::Mesh& Mesh = tmpModel.meshes[tmpModel.nodes[NodeIdx].mesh];
-
-        for(tinygltf::Primitive& Prim : Mesh.primitives)
-        {
-            std::vector<float> tmpVec;
-
-            ExtractVtxComp(tmpModel, Prim, "POSITION", 3, tmpVec);
-
-            Ret->Vertices.resize(tmpVec.size());
-            for(uint32_t i = 0; i < tmpVec.size()/3; i++)
-            {
-                Ret->Vertices[i].Position.x = tmpVec[i];
-                Ret->Vertices[i].Position.y = tmpVec[i+1];
-                Ret->Vertices[i].Position.z = tmpVec[i+2];
-            }
-
-            ExtractVtxComp(tmpModel, Prim, "NORMAL", 3, tmpVec);
-
-            for(uint32_t i = 0; i < tmpVec.size()/3; i++)
-            {
-                Ret->Vertices[i].Normal.x = tmpVec[i];
-                Ret->Vertices[i].Normal.y = tmpVec[i+1];
-                Ret->Vertices[i].Normal.z = tmpVec[i+2];
-            }
-
-            ExtractVtxComp(tmpModel, Prim, "TEXCOORD_0", 2, tmpVec);
-            
-            for(uint32_t i = 0; i < tmpVec.size()/2; i++)
-            {
-                Ret->Vertices[i].UV.x = tmpVec[i];
-                Ret->Vertices[i].UV.y = tmpVec[i+1];
-            }
-        }
-    }
-
-    CreateBuffer(Ret->MeshBuffer, (Ret->Vertices.size() * sizeof(Vertex))+ (Ret->Indices.size() * sizeof(uint32_t)), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-    Allocate(Ret->MeshBuffer, false);
-
-    if(pTransit == nullptr)
-    {
-        CreateBuffer(TransitBuffer, 4194304, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-        Allocate(TransitBuffer, true);
-        Map(&TransitBuffer);
-    }
-
-    memcpy(TransitBuffer.pData, Ret->Vertices.data(), Ret->Vertices.size()*sizeof(Vertex));
-    memcpy(((char*)TransitBuffer.pData)+(Ret->Vertices.size()*sizeof(Vertex)), Ret->Indices.data(), Ret->Indices.size()*sizeof(uint32_t));
-
-    Ret->IndexOffset = Ret->Vertices.size()*sizeof(Vertex);
-
-    Resources::CommandBuffer* cmdTransfer = TransferHeap.CreateBuffer();
-
-    cmdTransfer->Start();
-
-        VkBufferCopy CopyInf{};
-        CopyInf.srcOffset = 0;
-        CopyInf.dstOffset = 0;
-        CopyInf.size = (Ret->Vertices.size() * sizeof(Vertex)) + (Ret->Indices.size() * sizeof(uint32_t));
-
-        vkCmdCopyBuffer(*cmdTransfer, TransitBuffer.Buff, Ret->MeshBuffer.Buff, 1, &CopyInf);
-
-    cmdTransfer->Stop();
-
-    TransferHeap.Submit(cmdTransfer, &cmdTransfer->Fence);
-
-    PipeStages[PipeName]->Drawables.push_back(Ret);
-
-    return Ret;
+    return pRet;
 }
 
 void SceneRenderer::AddPass(Subpass* pSubpass)
@@ -329,31 +451,153 @@ void SceneRenderer::AddPass(Subpass* pSubpass)
 void SceneRenderer::Bake()
 {
     ScenePass.Bake();
-    FrameChain.Bake(&ScenePass);
 
-    SceneSync.FrameSem = CreateSemaphore();
-    SceneSync.RenderSem = CreateSemaphore();
+    SceneSync.FrameSem = CreateVulkanSemaphore();
+    SceneSync.RenderSem = CreateVulkanSemaphore();
+    SceneSync.pGenFence = CreateFence();
+
+    pCmdOpsBuffer = GraphicsHeap.CreateBuffer();
+    pCmdOpsBuffer->Start();
+
+        FrameChain.Bake(&ScenePass, *pCmdOpsBuffer);
+
+    pCmdOpsBuffer->Stop();
+
+    GraphicsHeap.Submit(pCmdOpsBuffer, SceneSync.pGenFence);
 }
 
 void SceneRenderer::Render()
 {
-    if(pRenderBuffer == nullptr)
+    if(pCmdRenderBuffer == nullptr)
     {
-        pRenderBuffer = GraphicsHeap.CreateBuffer();
+        pCmdRenderBuffer = GraphicsHeap.CreateBuffer();
     }
+
+    GetTransferAgent()->Flush();
 
     uint32_t FrameIdx = GetWindow()->GetNextFrame(SceneSync.FrameSem);
 
-    ScenePass.Begin(*pRenderBuffer, FrameChain.FrameBuffers[FrameIdx]);
-        for(uint32_t i = 0; i < PassStages.size(); i++)
-        {
-            for(uint32_t x = 0; x < PassStages[i].PipeStages.size(); x++)
+    pCmdRenderBuffer->Start();
+        ScenePass.Begin(*pCmdRenderBuffer, FrameChain.FrameBuffers[FrameIdx]);
+            GetTransferAgent()->AwaitFlush();
+            for(uint32_t i = 0; i < PassStages.size(); i++)
             {
-                vkCmdBindDescriptorSets(*pRenderBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PassStages[i].PipeStages[x]->Pipe->PipeLayout, 0, 1, &SceneCam->pWvpUniform->DescSet, 0, nullptr);
-                PassStages[i].PipeStages[x]->Draw(pRenderBuffer);
+                vkCmdBindDescriptorSets(*pCmdRenderBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PassStages[i].PipeStages[0]->Pipe->PipeLayout, 0, 1, &pSceneDescriptorSet->DescSet, 0, nullptr);
+                vkCmdBindDescriptorSets(*pCmdRenderBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, DrawPipeline.PipeLayout, 0, 1, &pSceneDescriptorSet->DescSet, 0, nullptr);
+                vkCmdBindPipeline(*pCmdRenderBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, DrawPipeline);
+
+                for(uint32_t x = 0; x < PassStages[i].PipeStages.size(); x++)
+                {
+                    PassStages[i].PipeStages[x]->UpdateDraws(pCmdRenderBuffer, DrawPipeline.PipeLayout);
+                }
+
+                for(uint32_t x = 0; x < PassStages[i].PipeStages.size(); x++)
+                {
+                    PassStages[i].PipeStages[x]->Draw(pCmdRenderBuffer);
+                }
+
+                vkCmdNextSubpass(*pCmdRenderBuffer, VK_SUBPASS_CONTENTS_INLINE);
+            }
+        ScenePass.End(*pCmdRenderBuffer);
+    pCmdRenderBuffer->Stop();
+
+    GraphicsHeap.Submit(pCmdRenderBuffer, SceneSync.pGenFence, 1, &SceneSync.RenderSem);
+
+    GetWindow()->PresentFrame(FrameIdx, &SceneSync.RenderSem);
+}
+
+pbrMesh* AssetManager::CreateMesh(std::string Path, std::string PipeName)
+{
+    // initiate stack variables
+    pbrMesh* Ret = new pbrMesh();
+ 
+    tinygltf::Model tmpModel;
+
+    std::string Err, Warn;
+
+    // load the mesh file
+    if(!MeshLoader.LoadBinaryFromFile(&tmpModel, &Err, &Warn, Path))
+    {
+        throw std::runtime_error("Failed to load mesh file " + Path);
+    }
+
+    if(tmpModel.scenes.size() == 0)
+    {
+        std::cout << "Tried to create drawable mesh, but couldn't due to an empty scene.";
+        return nullptr;
+    }
+
+    // process the File from the MeshScene variable provided from tinygltf.
+    tinygltf::Scene& MeshScene = tmpModel.scenes[(tmpModel.defaultScene > -1) ? tmpModel.defaultScene : 0];
+
+    for(int NodeIdx : MeshScene.nodes)
+    {
+        // skip the node if there is no mesh
+        if(tmpModel.nodes[NodeIdx].mesh < 0) continue;
+
+        tinygltf::Mesh& Mesh = tmpModel.meshes[tmpModel.nodes[NodeIdx].mesh];
+
+        // process the mesh primitives' vertices.
+        for(tinygltf::Primitive& Prim : Mesh.primitives)
+        {
+            std::vector<float> tmpVec;
+
+            ExtractVtxComp(tmpModel, Prim, "POSITION", 3, tmpVec);
+
+            Ret->pVertices = new Vertex[tmpVec.size()];
+            Ret->VertCount = tmpVec.size();
+
+            for(uint32_t i = 0; i < tmpVec.size()/3; i++)
+            {
+                Ret->pVertices[i].Position.x = tmpVec[ (i*3) ];
+                Ret->pVertices[i].Position.y = tmpVec[ (i*3)+1 ];
+                Ret->pVertices[i].Position.z = tmpVec[ (i*3)+2 ];
             }
 
-            vkCmdNextSubpass(*pRenderBuffer, VK_SUBPASS_CONTENTS_INLINE);
+            ExtractVtxComp(tmpModel, Prim, "NORMAL", 3, tmpVec);
+
+            for(uint32_t i = 0; i < tmpVec.size()/3; i++)
+            {
+                Ret->pVertices[i].Normal.x = tmpVec[ (i*3) ];
+                Ret->pVertices[i].Normal.y = tmpVec[ (i*3)+1 ];
+                Ret->pVertices[i].Normal.z = tmpVec[ (i*3)+2 ];
+            }
+
+            ExtractVtxComp(tmpModel, Prim, "TEXCOORD_0", 2, tmpVec);
+            
+            for(uint32_t i = 0; i < tmpVec.size()/2; i++)
+            {
+                Ret->pVertices[i].UV.x = tmpVec[ (i*3) ];
+                Ret->pVertices[i].UV.y = tmpVec[ (i*3)+1 ];
+            }
+
+            std::vector<uint32_t> tmpIdx;
+
+            ExtractIdx(tmpModel, Prim, tmpIdx);
+
+            Ret->pIndices = new uint32_t[tmpIdx.size()];
+            Ret->IndexCount = tmpIdx.size();
+
+            for(uint32_t i = 0; i < tmpIdx.size(); i++)
+            {
+                Ret->pIndices[i] = tmpIdx[i];
+            }
         }
-    ScenePass.End(*pRenderBuffer);
+    }
+
+    // create the mesh buffer (for vertices and indices)
+    CreateBuffer(Ret->MeshBuffer, (Ret->VertCount * sizeof(Vertex))+ (Ret->IndexCount * sizeof(uint32_t)), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    Allocate(Ret->MeshBuffer, false);
+
+    GetTransferAgent()->Transfer((void*)Ret->pVertices, Ret->VertCount*sizeof(Vertex), &Ret->MeshBuffer, 0);
+    GetTransferAgent()->Transfer((void*)Ret->pIndices, Ret->IndexCount, &Ret->MeshBuffer, Ret->VertCount*sizeof(Vertex));
+
+    Ret->Bake();
+
+    // Store the byte offset of the indices (needed during render.)
+    Ret->IndexOffset = Ret->VertCount*sizeof(Vertex);
+
+    pRenderer->AddMesh(Ret, PipeName);
+
+    return Ret;
 }

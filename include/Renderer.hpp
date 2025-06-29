@@ -5,66 +5,169 @@
 
 #include "glm/gtc/matrix_transform.hpp"
 
+#include <iostream>
 #include <unordered_map>
+#include <stdexcept>
+
+#define MAX_RENDERABLE_INSTANCES 500
 
 // seperate drawables and meshes.
 
+/*! Vertex structure containing all needed attributes */
 struct Vertex
 {
-    glm::vec3 Position;
-    glm::vec3 Normal;
-    glm::vec2 UV;
+    glm::vec3 Position; //! > Position of the vertex in 3D-space
+    glm::vec3 Normal; //! > Facing normal of the vertex.
+    glm::vec2 UV; //! > UV coordinates of the vertex, for mapping to textures.
 };
 
+/*! Texture structure containing everything needed to use an image as a mesh texture (or 2D texture) */
 struct Texture
 {
     Resources::Image* Img = nullptr;
-    VkSampler Sampler;
 };
 
-class pbrMesh
+// todo: implement convex hulls as culling shapes.
+struct CullingBox
+{
+    glm::vec3 Vertices[4];
+};
+
+struct pbrMeshDescriptors
+{
+    VkDrawIndirectCommand cmdIndirectDraw;
+    uint32_t MeshBoundIdx;
+    uint32_t InstCount;
+    std::vector<uint32_t> MeshInstances;
+};
+
+class Cullable
+{
+    CullingBox CullBound;
+};
+
+class Instanced
 {
 public:
-    pbrMesh();
+    static Resources::DescriptorLayout* pMeshPassLayout;
 
-    static Resources::DescriptorLayout MeshLayout;
+    virtual void GenDraws(VkCommandBuffer* pCmdBuffer, VkPipelineLayout Layout) = 0;
+    virtual void DrawInstances(VkCommandBuffer* pCmdBuffer, VkPipelineLayout Layout) = 0;
+    virtual void AddInstance(uint32_t InstanceIndex) = 0;
+    void Update();
 
-    std::vector<Vertex> Vertices;
-    std::vector<uint32_t> Indices;
+    Resources::DescriptorSet* pMeshPassSet;
 
-    uint32_t IndexOffset;
+protected:
+    bool bDirty;
 
-    Resources::Buffer MeshBuffer;
-
-    Resources::Buffer MeshMat;
-    Texture Albedo = {};
-    Texture Normal = {};
-
-    Resources::DescriptorSet MeshDescriptor;
-
-    void Draw(VkCommandBuffer& cmdBuff, VkPipelineLayout Layout, uint32_t MeshDescriptorIdx);
+    std::vector<uint32_t> Instances;
+    Resources::Buffer MeshPassBuffer;
 };
 
+/*! Contains physical description of a mesh */
+class pbrMesh : public Instanced
+{
+public:
+    Resources::DescriptorLayout MeshLayout;
+    Resources::DescriptorSet MeshSet;
+    CullingBox CullBound;
+
+    pbrMesh();
+    ~pbrMesh()
+    {
+        delete[] pVertices;
+        pVertices = nullptr;
+        delete[] pIndices;
+        pIndices = nullptr;
+    }
+
+    void Bake();
+
+    Vertex* pVertices;
+    uint32_t VertCount;
+
+    uint32_t* pIndices;
+    uint32_t IndexCount;
+
+    /* Inherited from instance */
+        /*! \brief Generates the draw commands (and performs occlusion and frustum culling) for the instances*/
+        void GenDraws(VkCommandBuffer* pCmdBuffer, VkPipelineLayout Layout);
+
+        /*! \brief Renders all visible instances of this mesh. */
+        void DrawInstances(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout);
+
+        void AddInstance(uint32_t InstanceIndex);
+
+    /*! \brief Byte offset of the index array in the mesh buffer. */
+    uint32_t IndexOffset;
+    Resources::Buffer MeshBuffer;
+
+    Resources::Buffer InstancesBuffer;
+
+private:
+
+    Texture Albedo = {};
+    Texture Normal = {};
+};
+
+/*! Contains information needed for mesh instance to be rendered. */
+class Drawable
+{
+public:
+    Drawable(Resources::Buffer* SceneBuffer) : pSceneBuffer(SceneBuffer) {};
+
+    void SetTransform(glm::vec3 Position = {0.f, 0.f, 0.f}, glm::vec3 Rotation = {0.f, 0.f, 0.f}, glm::vec3 Scale = {1.f, 1.f, 1.f});
+
+    void Translate(glm::vec3 Translation);
+
+    void Rotate(glm::vec3 Rotation);
+
+    void Scale(glm::vec3 Scale);
+
+    void UpdateTransform();
+
+    bool bStatic;
+    uint32_t ObjIdx;
+
+    Resources::Buffer* pSceneBuffer;
+
+    glm::mat4 Transform;
+
+    pbrMesh* pMesh;
+};
+
+//! Pipeline stage in a renderpass.
+/*!
+ Contains all drawables assigned to the wrapped pipeline. Also contains the index of the subpass this pipeline was built against.
+*/
 struct PipeStage
 {
+    // Call when 
+    void UpdateDraws(Resources::CommandBuffer* pCmdBuffer, VkPipelineLayout ComputeLayout);
     void Draw(Resources::CommandBuffer* pCmdBuffer);
 
     Pipeline* Pipe = nullptr;
     uint32_t PassIdx;
-    std::vector<pbrMesh*> Drawables;
+    std::vector<pbrMesh*> Meshes;
 };
 
+//! Subpass stages.
+/*!
+ Contains all associated Pipeline stages.
+*/
 struct PassStage
 {
     std::vector<PipeStage*> PipeStages;
 };
 
+//! Camera structure.
 class Camera
 {
 public:
     Camera()
     {
-        CreateBuffer(WvpBuffer, sizeof(glm::mat4)*3, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        CreateBuffer(WvpBuffer, (sizeof(glm::mat4)*3)+(sizeof(glm::vec4)*6), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
         Allocate(WvpBuffer, true);
 
@@ -73,14 +176,6 @@ public:
         glm::mat4* pWvp = (glm::mat4*)WvpBuffer.pData;
         pWvp[0] = glm::mat4(1.f);
         pWvp[2] = glm::perspective(45.f, 16.f/9.f, 0.f, 9999.f);
-
-        VkDescriptorSetLayoutBinding uBufferBinding{};
-        uBufferBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        uBufferBinding.binding = 0;
-        uBufferBinding.descriptorCount = 1;
-        uBufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-
-        WvpLayout.AddBinding(uBufferBinding);
     }
 
     void Move()
@@ -105,23 +200,44 @@ public:
         pWvp[1] = glm::inverse(CamMat);
     }
 
-    Resources::DescriptorLayout WvpLayout;
+    void GenPlanes()
+    {
+        for(uint32_t i = 0; i < 3; i++)
+        {
+            for(uint32_t x = 0; x < 2; x++)
+            {
+                float sign = x ? 1.f : -1.f;
+
+                for(uint32_t k = 0; k < 4; k++)
+                {
+                    glm::mat4 View = glm::inverse(CamMat);
+                    Planes[2*i+x][k] = View[k][3] + sign * View[k][i];
+                }
+            }
+        }
+
+        for(glm::vec4& pl : Planes)
+        {
+            pl /= static_cast<float>(glm::length(glm::vec3(pl)));
+        }
+    }
+
     Resources::Buffer WvpBuffer;
-    Resources::DescriptorSet* pWvpUniform;
 
     glm::mat4 CamMat;
 
 private:
     glm::mat4* pWvp;
+    glm::vec4 Planes[6];
     float Speed = 0.3f;
     glm::vec2 PrevMouse;
 };
 
-/*! \brief Abstracts framebuffer creation by creating all images, views, and framebuffers from basic descriptions of the attachments provided by the user. */
+/*! Abstracts framebuffer creation by creating all images, views, and framebuffers from basic descriptions of the attachments provided by the user. */
 class FrameBufferChain
 {
 public:
-    void Bake(RenderPass* pPass);
+    void Bake(RenderPass* pPass, VkCommandBuffer* pCmdBuffer);
     inline void AddAtt(VkImageCreateInfo AttDesc) { AttachmentDescs.push_back(AttDesc); }
 
     std::vector<Resources::FrameBuffer> FrameBuffers;
@@ -132,14 +248,17 @@ private:
     uint32_t FBCount;
 };
 
-/*! \brief Contains heaps(arrays of allocator memory wrappers), pipelines, renderpasses, and drawables and renders them to the screen */
+/*! Contains heaps(arrays of allocator memory wrappers), pipelines, renderpasses, and drawables and renders them to the screen */
 class SceneRenderer
 {
 public:
     SceneRenderer();
+    ~SceneRenderer();
 
     Pipeline* CreatePipeline(std::string PipeName, uint32_t SubpassIdx, const char* VtxPath, const char* FragPath, uint32_t BlendAttCount = 0, VkPipelineColorBlendAttachmentState* BlendAttachments = nullptr, uint32_t DescriptorCount = 0, Resources::DescriptorLayout* pDescriptors = nullptr, PipelineProfile* pProfile = nullptr);
-    pbrMesh* CreateDrawable(std::string Path, std::string PipeName);
+
+    void AddMesh(pbrMesh* Mesh, std::string PipeName);
+    Drawable* CreateDrawable(pbrMesh* pMesh, bool bDynamic);
 
     inline void AddFrameBufferAttachment(VkFormat Format, VkImageUsageFlagBits Usage)
     {
@@ -147,8 +266,7 @@ public:
         DepthBuffer.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         DepthBuffer.extent = { GetWindow()->Resolution.width, GetWindow()->Resolution.height, 1 };
         DepthBuffer.arrayLayers = 1;
-        DepthBuffer.imageType = VK_IMAGE_TYPE_2D;
-        DepthBuffer.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        DepthBuffer.imageType = VK_IMAGE_TYPE_2D; DepthBuffer.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         DepthBuffer.mipLevels = 1;
         DepthBuffer.samples = VK_SAMPLE_COUNT_1_BIT;
         DepthBuffer.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -184,12 +302,11 @@ public:
         Allocators::CommandPool ComputeHeap; //! > Compute command buffer allocator
         Allocators::CommandPool TransferHeap; //! > Transfer command buffer allocator
 
-    /* Transfer */
-        void* pTransit = nullptr; //! > Raw transit memory pointer. Maps to the TransitBuffer
-
     /* Scene Render Information */
         PipelineProfile SceneProfile; //! > Scene-wide pipeline profile.
         Camera* SceneCam; //! > Scene camera structure.
+
+    Resources::DescriptorSet SceneSet;
 
 private:
     /* Scene Pass */
@@ -197,6 +314,7 @@ private:
         {
             VkSemaphore FrameSem;
             VkSemaphore RenderSem;
+            Resources::Fence* pGenFence;
         } SceneSync;
 
         RenderPass ScenePass; //! > Scene wide renderpass. Passes can be added to the scene through AddPass().
@@ -205,10 +323,80 @@ private:
         FrameBufferChain FrameChain; //! > Scene framebuffer chain. Attachments can be added through AddFrameBufferAttachment()
 
 
-    Resources::Buffer TransitBuffer; //! > Scene transit buffer for memory copy operations.
+    /* Scene Descriptor contains scene info
+
+        binding 0:
+
+         Contain information about the camera, such as the WVP matrices and the frustum planes for frustum culling.
+
+            layout(std140, set = 0, binding = 0) uniform Camerastructure
+            {
+                mat4 View;
+                mat4 Proj;
+                mat4 ProjView;
+                vec4 Planes[6];
+            } Camera;
+
+        binding 1:
+
+         Contains static mesh instances in the scene
+
+            layout(std140, set = 0, binding = 1) buffer StaticSceneStruct
+            {
+                mat4 Transforms[];
+                uint IDs[];
+            } StaticSceneBuffer;
+
+        binding 2:
+
+         Contains dynamic mesh instances in the scene
+
+            layout(std140, set = 0, binding = 1) buffer DynamicSceneStruct
+            {
+                mat4 Transforms[];
+                uint IDs[];
+            } DynamicSceneBuffer;
+
+        binding 3:
+
+         Contains mesh culling volumes (OBBs). Should be transformed by mesh transforms to get correct position/orientation/scale
+
+            layout(std140, set = 0, binding = 3) buffer readonly globInstBounds
+            {
+                struct CullBounds
+                {
+                    float Width;
+                    float Height;
+                } MeshCullBounds[];
+            } Bounds;
+    */
+
+    Resources::DescriptorLayout* pSceneDescriptorLayout;
+    Resources::DescriptorSet* pSceneDescriptorSet;
+
+    Resources::Buffer StaticSceneBuffer; //! > Static scene object positions (10000).
+    uint32_t StaticIter = 0; // Index Iterator
+
+    Resources::Buffer DynamicSceneBuffer; //! > Dynamic scene object positions (5000).
+    uint32_t DynamicIter = 0; // Index Iterator
 
     std::unordered_map<std::string, PipeStage*> PipeStages; //! > Pipeline stages (Pipeline+Drawables) mapped to string names
     std::vector<PassStage> PassStages; //! > Pipeline stages sorted by subpass.
 
-    Resources::CommandBuffer* pRenderBuffer = nullptr; //! > Render buffer
+    ComputePipeline DrawPipeline;
+
+    Resources::CommandBuffer* pCmdOpsBuffer;
+    Resources::CommandBuffer* pCmdRenderBuffer = nullptr; //! > Render buffer
+};
+
+class AssetManager
+{
+    public:
+        /*! \brief Loads a mesh from a mesh file (.glb or .gltf)
+        *
+        *   Uses tinygltf to load a gltf file and registers the mesh with the specified pipeline.
+        */
+        pbrMesh* CreateMesh(std::string Path, std::string PipeName);
+
+        SceneRenderer* pRenderer;
 };
