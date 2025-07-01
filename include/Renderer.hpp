@@ -173,7 +173,7 @@ public:
 
         Map(&WvpBuffer);
 
-        glm::mat4* pWvp = (glm::mat4*)WvpBuffer.pData;
+        pWvp = (glm::mat4*)WvpBuffer.pData;
         pWvp[0] = glm::mat4(1.f);
         pWvp[2] = glm::perspective(45.f, 16.f/9.f, 0.f, 9999.f);
     }
@@ -260,22 +260,23 @@ public:
     void AddMesh(pbrMesh* Mesh, std::string PipeName);
     Drawable* CreateDrawable(pbrMesh* pMesh, bool bDynamic);
 
-    inline void AddFrameBufferAttachment(VkFormat Format, VkImageUsageFlagBits Usage)
+    inline void AddFrameBufferAttachment(VkFormat Format, VkImageLayout AttachmentLayout, VkImageUsageFlagBits Usage)
     {
-        VkImageCreateInfo DepthBuffer{};
-        DepthBuffer.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        DepthBuffer.extent = { GetWindow()->Resolution.width, GetWindow()->Resolution.height, 1 };
-        DepthBuffer.arrayLayers = 1;
-        DepthBuffer.imageType = VK_IMAGE_TYPE_2D; DepthBuffer.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        DepthBuffer.mipLevels = 1;
-        DepthBuffer.samples = VK_SAMPLE_COUNT_1_BIT;
-        DepthBuffer.tiling = VK_IMAGE_TILING_OPTIMAL;
-        DepthBuffer.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VkImageCreateInfo AttachentImg{};
+        AttachentImg.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        AttachentImg.extent = { GetWindow()->Resolution.width, GetWindow()->Resolution.height, 1 };
+        AttachentImg.arrayLayers = 1;
+        AttachentImg.imageType = VK_IMAGE_TYPE_2D;
+        AttachentImg.initialLayout = AttachmentLayout; // this is changed to undefined when we bake the frambufferchain, it is saved, then transfered back to this layout with a memory barrier.
+        AttachentImg.mipLevels = 1;
+        AttachentImg.samples = VK_SAMPLE_COUNT_1_BIT;
+        AttachentImg.tiling = VK_IMAGE_TILING_OPTIMAL;
+        AttachentImg.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        DepthBuffer.format = Format;
-        DepthBuffer.usage = Usage;
+        AttachentImg.format = Format;
+        AttachentImg.usage = Usage;
 
-        FrameChain.AddAtt(DepthBuffer);
+        FrameChain.AddAtt(AttachentImg);
     }
 
     inline void AddRenderAttachment(VkFormat Format, VkImageLayout InitLay, VkImageLayout FinLay, VkAttachmentStoreOp StoreOp, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StencilStoreOp, VkAttachmentLoadOp StencilLoadOp, VkClearValue* ClearValue, VkSampleCountFlagBits Samples)

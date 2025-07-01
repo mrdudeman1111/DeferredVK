@@ -152,7 +152,7 @@ namespace Resources
         VkDescriptorPool* pPool;
     };
 
-    // Wraps FrameBuffer Information and creation
+    // Wraps FrameBuffer Information and creatioo
     class FrameBuffer
     {
     public:

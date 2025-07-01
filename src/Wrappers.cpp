@@ -102,8 +102,8 @@ namespace Resources
 
     void DescriptorSet::Update(DescUpdate* pUpdateInfos, size_t Count)
     {
-        std::vector<VkWriteDescriptorSet> WriteInfos;
-        std::vector<VkDescriptorBufferInfo> WriteBuffers;
+        std::vector<VkWriteDescriptorSet> WriteInfos = {};
+        std::vector<VkDescriptorBufferInfo> WriteBuffers = {};
 
         for(uint32_t i = 0; i < Count; i++)
         {
@@ -120,11 +120,13 @@ namespace Resources
             BuffInfo.offset = pUpdateInfos[i].Offset;
             BuffInfo.range = pUpdateInfos[i].Range;
 
-            WriteBuffers.push_back(BuffInfo);
-
-            WriteInfo.pBufferInfo = &WriteBuffers[i];
-
             WriteInfos.push_back(WriteInfo);
+            WriteBuffers.push_back(BuffInfo);
+        }
+
+        for(uint32_t i = 0; i < WriteInfos.size(); i++)
+        {
+            WriteInfos[i].pBufferInfo = &WriteBuffers[i];
         }
 
         vkUpdateDescriptorSets(GetContext()->Device, WriteInfos.size(), WriteInfos.data(), 0, nullptr);
@@ -190,6 +192,8 @@ namespace Resources
         for(uint32_t i = 0; i < AttachmentInfos.size(); i++)
         {
             VkImageView tmpView;
+            
+            uint32_t Iter = i+1;
 
             VkImageViewCreateInfo ViewCI{};
             ViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -225,8 +229,9 @@ namespace Resources
             MemoryBarriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
             MemoryBarriers[i].image = Attachments[i];
             MemoryBarriers[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            MemoryBarriers[i].newLayout = AttachmentLayouts[i];
+            MemoryBarriers[i].newLayout = AttachmentLayouts[Iter];
             MemoryBarriers[i].srcAccessMask = VK_ACCESS_NONE;
+            MemoryBarriers[i].dstAccessMask = VK_ACCESS_NONE;
 
             MemoryBarriers[i].subresourceRange.aspectMask = ViewCI.subresourceRange.aspectMask;
             MemoryBarriers[i].subresourceRange.baseArrayLayer = 0;
@@ -249,7 +254,7 @@ namespace Resources
             throw std::runtime_error("Failed to create framebuffer");
         }
 
-        vkCmdPipelineBarrier(*pCmdBuffer, VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_NONE, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, MemoryBarriers.size(), MemoryBarriers.data());
+        vkCmdPipelineBarrier(*pCmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, MemoryBarriers.size(), MemoryBarriers.data());
     }
 }
 
@@ -753,7 +758,8 @@ void Window::PresentFrame(uint32_t FrameIdx, VkSemaphore* pWaitSem)
     PresInf.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     PresInf.swapchainCount = 1;
     PresInf.pSwapchains = &Swapchain;
-    
+    PresInf.pImageIndices = &FrameIdx;
+
     if(pWaitSem != nullptr)
     {
         PresInf.waitSemaphoreCount = 1;

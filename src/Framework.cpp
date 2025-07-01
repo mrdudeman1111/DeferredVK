@@ -17,7 +17,7 @@ private:
         size_t Size;
         size_t Available;
 
-        uint32_t AllocTail;
+        uint32_t AllocTail = 0;
 
         VkDeviceMemory Memory;
     };
@@ -324,7 +324,7 @@ void CloseWrapperFW()
 
     void TransferAgent::AwaitFlush()
     {
-        if(!bFlushing)
+        if(bFlushing)
         {
             pWaitThread->join();
         }
@@ -411,6 +411,8 @@ Resources::Fence* CreateFence(std::string Name)
 
 void Allocate(Resources::Buffer& Buffer, bool bVisible)
 {
+    VkResult Err;
+
     VkMemoryRequirements MemReq;
 
     vkGetBufferMemoryRequirements(gContext->Device, Buffer, &MemReq);
@@ -432,7 +434,7 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[i].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.HostHeaps[i].Memory, MemLoc);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.HostHeaps[i].Memory, MemLoc);
                 bBound = true;
             }
         }
@@ -454,14 +456,14 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 }
 
                 ApplicationMemory.HostHeaps[EndIdx].Size = MemReq.size;
-                ApplicationMemory.HostHeaps[EndIdx].AllocTail = MemReq.size;
+                ApplicationMemory.HostHeaps[EndIdx].AllocTail = 0;
                 ApplicationMemory.HostHeaps[EndIdx].Available = 0;
                 
                 Buffer.Alloc.Offset = 0;
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[EndIdx].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.HostHeaps[EndIdx].Memory, 0);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.HostHeaps[EndIdx].Memory, 0);
             }
             else
             {
@@ -476,14 +478,14 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 }
 
                 ApplicationMemory.HostHeaps[EndIdx].Size = PAGE_SIZE;
-                ApplicationMemory.HostHeaps[EndIdx].AllocTail = MemReq.size;
+                ApplicationMemory.HostHeaps[EndIdx].AllocTail = 0;
                 ApplicationMemory.HostHeaps[EndIdx].Available = MemReq.size - AllocInf.allocationSize;
                 
                 Buffer.Alloc.Offset = 0;
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[EndIdx].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.HostHeaps[EndIdx].Memory, 0);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.HostHeaps[EndIdx].Memory, 0);
             }
         }
     }
@@ -500,7 +502,7 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.LocalHeaps[i].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.LocalHeaps[i].Memory, MemLoc);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.LocalHeaps[i].Memory, MemLoc);
                 bBound = true;
             }
         }
@@ -522,14 +524,14 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 }
 
                 ApplicationMemory.LocalHeaps[EndIdx].Size = MemReq.size;
-                ApplicationMemory.LocalHeaps[EndIdx].AllocTail = MemReq.size;
+                ApplicationMemory.LocalHeaps[EndIdx].AllocTail = 0;
                 ApplicationMemory.LocalHeaps[EndIdx].Available = 0;
                 
                 Buffer.Alloc.Offset = 0;
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[EndIdx].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.LocalHeaps[EndIdx].Memory, 0);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.LocalHeaps[EndIdx].Memory, 0);
             }
             else
             {
@@ -544,17 +546,19 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 }
 
                 ApplicationMemory.LocalHeaps[EndIdx].Size = PAGE_SIZE;
-                ApplicationMemory.LocalHeaps[EndIdx].AllocTail = MemReq.size;
+                ApplicationMemory.LocalHeaps[EndIdx].AllocTail = 0;
                 ApplicationMemory.LocalHeaps[EndIdx].Available = MemReq.size - AllocInf.allocationSize;
                 
                 Buffer.Alloc.Offset = 0;
                 Buffer.Alloc.Size = MemReq.size;
                 Buffer.Alloc.pMemory = &ApplicationMemory.HostHeaps[EndIdx].Memory;
 
-                vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.LocalHeaps[EndIdx].Memory, 0);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, ApplicationMemory.LocalHeaps[EndIdx].Memory, 0);
             }
         }
     }
+
+    if(Err != VK_SUCCESS) throw std::runtime_error("Failed to bind a buffer.");
 
     return;
 }

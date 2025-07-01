@@ -9,7 +9,7 @@ int main()
 {
     AssetMan.pRenderer = &Scene;
 
-    Scene.AddFrameBufferAttachment(VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+    Scene.AddFrameBufferAttachment(VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
     VkClearValue ColorClear; ColorClear.color.float32[0] = 0.f; ColorClear.color.float32[1] = 0.f; ColorClear.color.float32[2] = 0.f; ColorClear.color.float32[3] = 0.f;
     VkClearValue DepthClear; DepthClear.depthStencil.depth = 1.f;
@@ -85,8 +85,6 @@ int main()
         Wrappers::Subpass ODTPass; // render order dependent transparency to stencil
         Wrappers::Subpass Lighting; // perform texturing and lighting on gBuffer
     */
-
-    CloseWrapperFW();
 
     std::cout << "Good run\n";
     return 0;

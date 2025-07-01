@@ -108,7 +108,7 @@ pbrMesh::pbrMesh()
 
 void pbrMesh::Bake()
 {
-    CreateBuffer(MeshPassBuffer, sizeof(VkDrawIndexedIndirectCommand)+(sizeof(uint32_t)*MAX_RENDERABLE_INSTANCES)+2, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    CreateBuffer(MeshPassBuffer, sizeof(VkDrawIndexedIndirectCommand)+(sizeof(uint32_t)*(MAX_RENDERABLE_INSTANCES+2)), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
     Allocate(MeshPassBuffer, false);
 
     VkDrawIndexedIndirectCommand tmp;
@@ -119,6 +119,18 @@ void pbrMesh::Bake()
     tmp.vertexOffset = 0;
 
     GetTransferAgent()->Transfer(&tmp, sizeof(tmp), &MeshPassBuffer, 0);
+
+    Resources::DescUpdate MeshPassUpdate{};
+    MeshPassUpdate.Binding = 0;
+    MeshPassUpdate.DescType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    MeshPassUpdate.DescCount = 1;
+    MeshPassUpdate.DescIndex = 0;
+
+    MeshPassUpdate.pBuff = &InstancesBuffer;
+    MeshPassUpdate.Range = InstancesBuffer.Alloc.Size;
+    MeshPassUpdate.Offset = 0;
+
+    pMeshPassSet->Update(&MeshPassUpdate, 1);
 }
 
 void pbrMesh::AddInstance(uint32_t InstIdx)
@@ -138,7 +150,8 @@ void pbrMesh::DrawInstances(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout)
     /*
         vkCmdBindDescriptorSets(cmdBuff, VK_PIPELINE_BIND_POINT_GRAPHICS, Layout, MeshDescriptorIdx, 1, &MeshSet.DescSet, 0, nullptr);
     */
-    vkCmdBindVertexBuffers(*pCmdBuff, 0, 1, MeshBuffer, 0);
+    VkDeviceSize Offset = 0;
+    vkCmdBindVertexBuffers(*pCmdBuff, 0, 1, MeshBuffer, &Offset);
     vkCmdBindIndexBuffer(*pCmdBuff, MeshBuffer, IndexOffset, VK_INDEX_TYPE_UINT32);
 
     vkCmdDrawIndexedIndirect(*pCmdBuff, MeshPassBuffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
@@ -224,7 +237,10 @@ void FrameBufferChain::Bake(RenderPass* pPass, VkCommandBuffer* pCmdBuffer)
 
         for(uint32_t x = 0; x < AttachmentDescs.size(); x++)
         {
-            FrameBuffers[i].AddBuffer(AttachmentDescs[x], AttachmentDescs[x].initialLayout);
+            VkImageLayout dstLayout = AttachmentDescs[x].initialLayout;
+            AttachmentDescs[x].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            FrameBuffers[i].AddBuffer(AttachmentDescs[x], dstLayout);
+            AttachmentDescs[x].initialLayout = dstLayout;
         }
 
         FrameBuffers[i].Bake(pPass->rPass, pCmdBuffer);
@@ -235,6 +251,8 @@ void FrameBufferChain::Bake(RenderPass* pPass, VkCommandBuffer* pCmdBuffer)
 
 SceneRenderer::SceneRenderer()
 {
+    VkResult Err;
+
     InitWrapperFW();
 
     SceneCam = new Camera();
@@ -251,13 +269,13 @@ SceneRenderer::SceneRenderer()
     SceneProfile.DepthRange = {0.f, 1.f};
     SceneProfile.DepthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
-    SceneProfile.AddBinding(0, sizeof(float)*8, VK_VERTEX_INPUT_RATE_VERTEX);
+    SceneProfile.AddBinding(0, sizeof(float)*3, VK_VERTEX_INPUT_RATE_VERTEX);
     SceneProfile.AddAttribute(0, VK_FORMAT_R32G32B32_SFLOAT, 0, 0);                   // Position
-    SceneProfile.AddAttribute(0, VK_FORMAT_R32G32B32_SFLOAT, 1, sizeof(glm::vec3));   // Normal
-    SceneProfile.AddAttribute(0, VK_FORMAT_R32G32_SFLOAT, 2, sizeof(glm::vec3)*2);    // UV
+    // SceneProfile.AddAttribute(0, VK_FORMAT_R32G32B32_SFLOAT, 1, sizeof(glm::vec3));   // Normal
+    // SceneProfile.AddAttribute(0, VK_FORMAT_R32G32_SFLOAT, 2, sizeof(glm::vec3)*2);    // UV
 
-    SceneProfile.AddBinding(1, sizeof(uint32_t), VK_VERTEX_INPUT_RATE_INSTANCE);
-    SceneProfile.AddAttribute(1, VK_FORMAT_R32_UINT, 3, 0); // Artificial Inst Idx
+    // SceneProfile.AddBinding(1, sizeof(uint32_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+    // SceneProfile.AddAttribute(1, VK_FORMAT_R32_UINT, 3, 0); // Artificial Inst Idx
 
     GraphicsHeap.Bake(false);
     ComputeHeap.Bake(true);
@@ -273,10 +291,10 @@ SceneRenderer::SceneRenderer()
     Instanced::pMeshPassLayout->AddBinding(MeshPassLayoutBinding);
     DescriptorHeaps[Instanced::pMeshPassLayout->Layout].Bake(Instanced::pMeshPassLayout, 1000);
 
-    CreateBuffer(StaticSceneBuffer, sizeof(glm::mat4)*10000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    if((Err = CreateBuffer(StaticSceneBuffer, sizeof(glm::mat4)*10000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)) != VK_SUCCESS) throw std::runtime_error("Failed to create static scene buffer.");
     Allocate(StaticSceneBuffer, false);
 
-    CreateBuffer(DynamicSceneBuffer, sizeof(glm::mat4)*5000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    Err = CreateBuffer(DynamicSceneBuffer, sizeof(glm::mat4)*5000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     Allocate(DynamicSceneBuffer, true);
     Map(&DynamicSceneBuffer);
 
@@ -325,7 +343,7 @@ SceneRenderer::SceneRenderer()
     SceneUpdates[0].Offset = 0;
 
     SceneUpdates[1].DescType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    SceneUpdates[1].Binding = 0;
+    SceneUpdates[1].Binding = 1;
     SceneUpdates[1].DescCount = 1;
     SceneUpdates[1].DescIndex = 0;
 
@@ -334,7 +352,7 @@ SceneRenderer::SceneRenderer()
     SceneUpdates[1].Offset = 0;
 
     SceneUpdates[2].DescType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    SceneUpdates[2].Binding = 0;
+    SceneUpdates[2].Binding = 2;
     SceneUpdates[2].DescCount = 1;
     SceneUpdates[2].DescIndex = 0;
 
@@ -420,11 +438,10 @@ Drawable* SceneRenderer::CreateDrawable(pbrMesh* Mesh, bool bDynamic)
 {
     Drawable* pRet;
 
-    pRet->pMesh = Mesh;
-
     if(bDynamic)
     {
         pRet = new Drawable(&DynamicSceneBuffer);
+        pRet->pMesh = Mesh;
         pRet->ObjIdx = DynamicIter;
         DynamicIter++;
         pRet->bStatic = false;
@@ -432,6 +449,7 @@ Drawable* SceneRenderer::CreateDrawable(pbrMesh* Mesh, bool bDynamic)
     else
     {
         pRet = new Drawable(&StaticSceneBuffer);
+        pRet->pMesh = Mesh;
         pRet->ObjIdx = StaticIter;
         StaticIter++;
         pRet->bStatic = true;
@@ -478,25 +496,34 @@ void SceneRenderer::Render()
     uint32_t FrameIdx = GetWindow()->GetNextFrame(SceneSync.FrameSem);
 
     pCmdRenderBuffer->Start();
+
+    GetTransferAgent()->AwaitFlush();
+
+    vkCmdBindDescriptorSets(*pCmdRenderBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, DrawPipeline.PipeLayout, 0, 1, &pSceneDescriptorSet->DescSet, 0, nullptr);
+    vkCmdBindPipeline(*pCmdRenderBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, DrawPipeline);
+
+    for(uint32_t i = 0; i < PassStages.size(); i++)
+    {
+        for(uint32_t x = 0; x < PassStages[i].PipeStages.size(); x++)
+        {
+            PassStages[i].PipeStages[x]->UpdateDraws(pCmdRenderBuffer, DrawPipeline.PipeLayout);
+        }
+    }
+
         ScenePass.Begin(*pCmdRenderBuffer, FrameChain.FrameBuffers[FrameIdx]);
-            GetTransferAgent()->AwaitFlush();
             for(uint32_t i = 0; i < PassStages.size(); i++)
             {
                 vkCmdBindDescriptorSets(*pCmdRenderBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PassStages[i].PipeStages[0]->Pipe->PipeLayout, 0, 1, &pSceneDescriptorSet->DescSet, 0, nullptr);
-                vkCmdBindDescriptorSets(*pCmdRenderBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, DrawPipeline.PipeLayout, 0, 1, &pSceneDescriptorSet->DescSet, 0, nullptr);
-                vkCmdBindPipeline(*pCmdRenderBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, DrawPipeline);
-
-                for(uint32_t x = 0; x < PassStages[i].PipeStages.size(); x++)
-                {
-                    PassStages[i].PipeStages[x]->UpdateDraws(pCmdRenderBuffer, DrawPipeline.PipeLayout);
-                }
 
                 for(uint32_t x = 0; x < PassStages[i].PipeStages.size(); x++)
                 {
                     PassStages[i].PipeStages[x]->Draw(pCmdRenderBuffer);
                 }
 
-                vkCmdNextSubpass(*pCmdRenderBuffer, VK_SUBPASS_CONTENTS_INLINE);
+                if(i+1 != PassStages.size())
+                {
+                    vkCmdNextSubpass(*pCmdRenderBuffer, VK_SUBPASS_CONTENTS_INLINE);
+                }
             }
         ScenePass.End(*pCmdRenderBuffer);
     pCmdRenderBuffer->Stop();
@@ -592,12 +619,12 @@ pbrMesh* AssetManager::CreateMesh(std::string Path, std::string PipeName)
     GetTransferAgent()->Transfer((void*)Ret->pVertices, Ret->VertCount*sizeof(Vertex), &Ret->MeshBuffer, 0);
     GetTransferAgent()->Transfer((void*)Ret->pIndices, Ret->IndexCount, &Ret->MeshBuffer, Ret->VertCount*sizeof(Vertex));
 
-    Ret->Bake();
+    pRenderer->AddMesh(Ret, PipeName);
 
     // Store the byte offset of the indices (needed during render.)
     Ret->IndexOffset = Ret->VertCount*sizeof(Vertex);
 
-    pRenderer->AddMesh(Ret, PipeName);
+    Ret->Bake();
 
     return Ret;
 }
