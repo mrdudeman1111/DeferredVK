@@ -7,6 +7,8 @@ AssetManager AssetMan;
 
 int main()
 {
+    Context* pCtx = GetContext();
+
     AssetMan.pRenderer = &Scene;
 
     Scene.AddFrameBufferAttachment(VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
@@ -27,10 +29,6 @@ int main()
 
     Scene.AddPass(&ForwardPass);
     Scene.Bake();
-
-    Allocators::CommandPool GraphicsPool;
-    GraphicsPool.Bake(false);
-    Resources::CommandBuffer* RenderBuff = GraphicsPool.CreateBuffer();
 
     VkPipelineColorBlendAttachmentState ColorState{};
     ColorState.blendEnable = VK_TRUE;
@@ -53,9 +51,6 @@ int main()
 
     while(Input::PollInputs())
     {
-        Scene.SceneCam->Rotate();
-        Scene.SceneCam->Move();
-
         Scene.Render();
 
         //FrameIdx = GetWindow()->GetNextFrame(SceneSync.FrameSem);
@@ -83,7 +78,8 @@ int main()
     Wrappers::RenderPass DeferredPass;
         Wrappers::Subpass GeoPass; // render geometry to gBuffer
         Wrappers::Subpass ODTPass; // render order dependent transparency to stencil
-        Wrappers::Subpass Lighting; // perform texturing and lighting on gBuffer
+        Wrappers::Subpass Lighting; // perform texturing and lighting on gBuffer using GGX lit model
+        // geometric specular anti-aliasing
     */
 
     std::cout << "Good run\n";

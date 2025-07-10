@@ -10,6 +10,13 @@
 
 #include "glm/glm.hpp"
 
+enum class CommandType
+{
+    eCmdGraphics,
+    eCmdCompute,
+    eCmdTransfer
+};
+
 struct PipeLocation
 {
     VkAccessFlagBits Access;
@@ -68,6 +75,7 @@ namespace Resources
     struct Buffer
     {
     public:
+        Buffer(std::string Name) : Name(Name) {}
         ~Buffer();
 
         operator VkBuffer() { return Buff; }
@@ -78,6 +86,7 @@ namespace Resources
         void* pData = nullptr;
 
     private:
+        std::string Name;
         VkBuffer Buff;
     };
 
@@ -89,7 +98,8 @@ namespace Resources
     public:
         ~CommandBuffer();
 
-        void Bake(VkCommandPool* pCmdPool, bool bCompute);
+        void Bake(VkCommandPool* pCmdPool);
+        void Reset();
         void Start();
         void Stop();
 
@@ -102,12 +112,11 @@ namespace Resources
             return &cmdBuffer;
         }
 
-        Fence cmdFence;
+        Fence* cmdFence;
 
     private:
         VkCommandPool* pPool;
         VkCommandBuffer cmdBuffer;
-        bool bCompute;
     };
 
     class DescriptorLayout
@@ -162,7 +171,7 @@ namespace Resources
 
         void AddBuffer(VkImageCreateInfo ImgCI, VkImageLayout InitLayout);
         void AddBuffer(VkImageView ImgView, VkImageLayout InitLayout);
-        void Bake(VkRenderPass Renderpass, VkCommandBuffer* pCmdBuffer);
+        void Bake(VkRenderPass Renderpass, VkCommandBuffer* pCmdBuffer, bool bHasSwapImg = true);
 
     private:
         VkFramebuffer Framebuff;
@@ -202,13 +211,12 @@ namespace Allocators
     public:
         ~CommandPool();
 
-        void Bake(bool bCompute);
-        void Submit(Resources::CommandBuffer* pCmdBuffer, Resources::Fence* pFence, uint32_t SignalSemCount = 0, VkSemaphore* SignalSemaphores = nullptr, uint32_t WaitSemCount = 0, VkSemaphore* WaitSemaphores = nullptr);
+        void Bake(CommandType cmdType);
+        void Submit(Resources::CommandBuffer* pCmdBuffer, uint32_t SignalSemCount = 0, VkSemaphore* SignalSemaphores = nullptr, uint32_t WaitSemCount = 0, VkSemaphore* WaitSemaphores = nullptr, VkPipelineStageFlagBits WaitStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
         Resources::CommandBuffer* CreateBuffer();
 
         VkCommandPool cmdPool;
-
-        bool bComp;
+        CommandType PoolType;
     };
 }
 
@@ -378,12 +386,15 @@ struct Context
 
     uint32_t ComputeFamily;
     VkQueue ComputeQueue;
+
+    uint32_t TransferFamily;
+    VkQueue TransferQueue;
 };
 
 struct Window
 {
 public:
-    uint32_t GetNextFrame(VkSemaphore& Semaphore);
+    uint32_t GetNextFrame(Resources::Fence* Fence = nullptr, VkSemaphore* Semaphore = nullptr);
     void PresentFrame(uint32_t FrameIdx, VkSemaphore* pWaitSem = nullptr);
 
     VkExtent2D Resolution;

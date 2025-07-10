@@ -28,6 +28,7 @@ namespace Resources
 
     Buffer::~Buffer()
     {
+        std::cout << "Destroying Buffer " << Name << '\n';
         vkDestroyBuffer(GetContext()->Device, Buff, nullptr);
     }
 
@@ -36,7 +37,7 @@ namespace Resources
         vkFreeCommandBuffers(GetContext()->Device, *pPool, 1, &cmdBuffer);
     }
 
-    void CommandBuffer::Bake(VkCommandPool* pCmdPool, bool bComp)
+    void CommandBuffer::Bake(VkCommandPool* pCmdPool)
     {
         VkResult Err;
 
@@ -53,17 +54,27 @@ namespace Resources
             throw std::runtime_error("Failed to allocate command buffer");
         }
 
-        bCompute = bComp;
+        cmdFence = CreateFence("Commandbuffer Fence");
 
         pPool = pCmdPool;
     }
 
+    void CommandBuffer::Reset()
+    {
+        vkResetCommandBuffer(cmdBuffer, 0);
+    }
+
     void CommandBuffer::Start()
     {
+        VkResult Err;
+
         VkCommandBufferBeginInfo BegInf{};
         BegInf.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-        vkBeginCommandBuffer(cmdBuffer, &BegInf);
+        if((Err = vkBeginCommandBuffer(cmdBuffer, &BegInf)) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to start command buffer recording\n");
+        }
     }
 
     void CommandBuffer::Stop()
@@ -149,7 +160,7 @@ namespace Resources
         AttachmentLayouts.push_back(InitLayout);
     }
 
-    void FrameBuffer::Bake(VkRenderPass Renderpass, VkCommandBuffer* pCmdBuffer)
+    void FrameBuffer::Bake(VkRenderPass Renderpass, VkCommandBuffer* pCmdBuffer, bool bHasSwapImg)
     {
         VkResult Err;
 
@@ -258,6 +269,7 @@ namespace Resources
     }
 }
 
+
 namespace Allocators
 {
     DescriptorPool::~DescriptorPool()
@@ -322,7 +334,7 @@ namespace Allocators
         vkDestroyCommandPool(GetContext()->Device, cmdPool, nullptr);
     }
 
-    void CommandPool::Bake(bool bCompute)
+    void CommandPool::Bake(CommandType cmdType)
     {
         VkResult Err;
 
@@ -330,54 +342,81 @@ namespace Allocators
 
         VkCommandPoolCreateInfo PoolCI{};
         PoolCI.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        PoolCI.queueFamilyIndex = (bCompute) ? pCtx->ComputeFamily : pCtx->GraphicsFamily;
+        PoolCI.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+        if(cmdType == CommandType::eCmdGraphics)
+        {
+            PoolCI.queueFamilyIndex = pCtx->GraphicsFamily;
+        }
+        else if(cmdType == CommandType::eCmdCompute)
+        {
+            PoolCI.queueFamilyIndex = pCtx->ComputeFamily;
+        }
+        else if(cmdType == CommandType::eCmdTransfer)
+        {
+            PoolCI.queueFamilyIndex = pCtx->TransferFamily;
+        }
 
         if((Err = vkCreateCommandPool(pCtx->Device, &PoolCI, nullptr, &cmdPool)) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create command pool");
         }
 
-        bCompute = bCompute;
+        PoolType = cmdType;
     }
 
-    void CommandPool::Submit(Resources::CommandBuffer* pCmdBuffer, Resources::Fence* pFence, uint32_t SignalSemCount, VkSemaphore* SignalSemaphores, uint32_t WaitSemCount, VkSemaphore* WaitSemaphores)
+    void CommandPool::Submit(Resources::CommandBuffer* pCmdBuffer, uint32_t SignalSemCount, VkSemaphore* SignalSemaphores, uint32_t WaitSemCount, VkSemaphore* WaitSemaphores, VkPipelineStageFlagBits WaitStages)
     {
         VkResult Err;
+
+        VkPipelineStageFlags Wait = WaitStages;
 
         VkSubmitInfo SubInf{};
         SubInf.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         SubInf.commandBufferCount = 1;
         SubInf.pCommandBuffers = *pCmdBuffer;
+        SubInf.pWaitDstStageMask = &Wait;
         SubInf.signalSemaphoreCount = SignalSemCount;
         SubInf.pSignalSemaphores = SignalSemaphores;
         SubInf.waitSemaphoreCount = WaitSemCount;
         SubInf.pWaitSemaphores = WaitSemaphores;
 
-        if(pFence != nullptr)
+        VkQueue* pQueue;
+
+        if(PoolType == CommandType::eCmdGraphics)
         {
-            VkFence* SubmitFence = pFence->GetFence();
-            vkQueueSubmit(GetContext()->GraphicsQueue, 1, &SubInf, *SubmitFence);
+            pQueue = &(GetContext()->GraphicsQueue);
+        }
+        else if(PoolType == CommandType::eCmdCompute)
+        {
+            pQueue = &(GetContext()->ComputeQueue);
+        }
+        else if(PoolType == CommandType::eCmdTransfer)
+        {
+            pQueue = &(GetContext()->TransferQueue);
         }
         else
         {
-            vkQueueSubmit(GetContext()->GraphicsQueue, 1, &SubInf, VK_NULL_HANDLE);
+            throw std::runtime_error("Failed to submit command buffer to pool due to uknown command type.\n");
+        }
+
+        if((Err = vkQueueSubmit(*pQueue, 1, &SubInf, *(pCmdBuffer->cmdFence->GetFence()))) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to submit a command buffer with error " + Err);
         }
     }
 
     Resources::CommandBuffer* CommandPool::CreateBuffer()
     {
         Resources::CommandBuffer* Ret = new Resources::CommandBuffer();
-        Ret->Bake(&cmdPool, false);
+        Ret->Bake(&cmdPool);
 
-        VkFenceCreateInfo FenceCI{};
-        FenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-
-        Context* pCtx = GetContext();
-        vkCreateFence(pCtx->Device, &FenceCI, nullptr, Ret->cmdFence.GetFence());
+        Ret->cmdFence = CreateFence();
 
         return Ret;
     }
 }
+
 
 RenderPass::~RenderPass()
 {
@@ -463,6 +502,8 @@ void RenderPass::End(Resources::CommandBuffer& cmdBuffer)
     vkCmdEndRenderPass(cmdBuffer);
 }
 
+
+
 VkPipelineMultisampleStateCreateInfo* PipelineProfile::GetMsaa()
 {
     Msaa.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -524,6 +565,8 @@ VkPipelineInputAssemblyStateCreateInfo* PipelineProfile::GetAssembly()
 
     return &AssemblyState;
 }
+
+
 
 Pipeline::~Pipeline()
 {
@@ -671,6 +714,8 @@ void Pipeline::Bind(VkCommandBuffer* pCmdBuffer)
     vkCmdBindPipeline(*pCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipe);
 }
 
+
+
 ComputePipeline::~ComputePipeline()
 {
     vkDestroyShaderModule(GetContext()->Device, CompShader, nullptr);
@@ -743,11 +788,13 @@ void ComputePipeline::Bake(const char* Comp)
     }
 }
 
-uint32_t Window::GetNextFrame(VkSemaphore& Semaphore)
+
+
+uint32_t Window::GetNextFrame(Resources::Fence* pFence, VkSemaphore* pSemaphore)
 {
     uint32_t Ret;
 
-    vkAcquireNextImageKHR(GetContext()->Device, Swapchain, UINT64_MAX, Semaphore, VK_NULL_HANDLE, &Ret);
+    vkAcquireNextImageKHR(GetContext()->Device, Swapchain, UINT64_MAX, (pSemaphore == nullptr) ? nullptr : *pSemaphore, (pFence == nullptr) ? 0 : *pFence->GetFence(), &Ret);
 
     return Ret;
 }

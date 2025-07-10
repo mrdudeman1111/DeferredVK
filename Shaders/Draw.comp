@@ -29,7 +29,7 @@ struct CullBounds
 };
 
  // scene globals and draw commands buffer
-layout(std140, set = 0, binding = 0) uniform Cam_t
+layout(set = 0, binding = 0) uniform Cam_t
 {
     mat4 View;
     mat4 Proj;
@@ -37,19 +37,23 @@ layout(std140, set = 0, binding = 0) uniform Cam_t
     vec4 Planes[6];
 } Camera;
 
-layout(std140, set = 0, binding = 1) buffer readonly globInstStruct
+layout(set = 0, binding = 1) buffer readonly StaticBuff
 {
     mat4 Transforms[];
     //uint IDs[];
-} SceneBuffer;
+} StatSceneBuffer;
 
+layout(set = 0, binding = 2) buffer readonly DynamicBuff
+{
+    mat4 Transforms[];
+} DynSceneBuffer;
 
 //layout(std140, set = 0, binding = 3) buffer readonly globInstBounds
 // {
 //     CullBounds Bounds[];
 // } Bounds;
 
-layout(std140, set = 1, binding = 0) buffer Draw_t
+layout(set = 1, binding = 0) buffer Draw_t
 {
     VkDrawIndexedIndirectCommand Draw;
     uint MeshBounds;
@@ -68,9 +72,10 @@ void main()
 
     if(id >= MeshDraw.InstanceCount)
     {
+        MeshDraw.MeshInstanceIndices[id] = 999999999;
         return;
     }
 
     MeshDraw.MeshInstanceIndices[MeshDraw.Draw.InstanceCount] = id;
-    MeshDraw.Draw.InstanceCount += 1;
+    MeshDraw.Draw.InstanceCount = MeshDraw.Draw.InstanceCount+1;
 }

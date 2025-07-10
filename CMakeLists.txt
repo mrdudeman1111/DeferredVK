@@ -15,8 +15,11 @@ file(GLOB SceneSrc
 
 add_executable(VkScene ${SceneSrc})
 
+target_link_directories(VkScene PUBLIC ${CMAKE_BINARY_DIR}/ThirdParty/SDL)
+
 target_link_libraries(VkScene Vulkan::Vulkan SDL3::SDL3-shared SDL3::Headers)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/Shaders)
 
 target_compile_definitions(VkScene PUBLIC shader_path="${CMAKE_BINARY_DIR}/Shaders/")
+target_compile_definitions(VkScene PRIVATE $<$<CONFIG:Debug>:DEBUG_MODE=1>)

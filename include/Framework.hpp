@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Wrappers.hpp"
+
+#include <atomic>
 #include <thread>
 
 #define PAGE_SIZE 16777216
@@ -76,24 +78,20 @@ class TransferAgent
             TransferImages= {};
             ImageLayouts = {};
 
-            TransitTail = false;
-
             bFlushing = false;
 
-            pTransitBuffer = new Resources::Buffer();
+            pTransitBuffer = new Resources::Buffer("Transfer Agent Transit Buffer");
+            TransitTail = 0;
 
             if(CreateBuffer(*pTransitBuffer, 16000000, VK_BUFFER_USAGE_TRANSFER_SRC_BIT) != VK_SUCCESS)
             {
                 std::cout << "Failed to create transit buffer.";
             }
 
-            pCmdBuff = cmdAllocator->CreateBuffer();
-
             Allocate(*pTransitBuffer, true);
-
             Map(pTransitBuffer);
 
-            pTransferFence = CreateFence("Trasfer Fence");
+            pCmdBuff = cmdAllocator->CreateBuffer();
         }
         ~TransferAgent()
         {
@@ -109,19 +107,18 @@ class TransferAgent
         void Flush();
         void AwaitFlush();
 
-        Resources::Fence* pTransferFence;
-
     private:
 
         void FlushImpl();
-        bool bFlushing;
 
+        std::atomic_bool bFlushing;
+
+        std::thread* pWaitThread;
         Resources::Buffer* pTransitBuffer;
         size_t TransitTail;
 
         Allocators::CommandPool* cmdAllocator;
         Resources::CommandBuffer* pCmdBuff;
-        std::thread* pWaitThread;
 
         std::vector<VkBufferCopy> BufferCopies;
         std::vector<Resources::Buffer*> TransferBuffers;

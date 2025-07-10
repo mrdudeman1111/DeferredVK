@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <stdexcept>
 
-#define MAX_RENDERABLE_INSTANCES 500
+#define MAX_RENDERABLE_INSTANCES 600
 
 // seperate drawables and meshes.
 
@@ -49,6 +49,8 @@ class Cullable
 class Instanced
 {
 public:
+    Instanced() : MeshPassBuffer("Instanced Mesh Buffer") {}
+
     static Resources::DescriptorLayout* pMeshPassLayout;
 
     virtual void GenDraws(VkCommandBuffer* pCmdBuffer, VkPipelineLayout Layout) = 0;
@@ -59,7 +61,7 @@ public:
     Resources::DescriptorSet* pMeshPassSet;
 
 protected:
-    bool bDirty;
+    bool bInstanceDataDirty;
 
     std::vector<uint32_t> Instances;
     Resources::Buffer MeshPassBuffer;
@@ -102,8 +104,6 @@ public:
     /*! \brief Byte offset of the index array in the mesh buffer. */
     uint32_t IndexOffset;
     Resources::Buffer MeshBuffer;
-
-    Resources::Buffer InstancesBuffer;
 
 private:
 
@@ -165,13 +165,15 @@ struct PassStage
 class Camera
 {
 public:
-    Camera()
+    Camera() : WvpBuffer("Camera WVP Buffer")
     {
         CreateBuffer(WvpBuffer, (sizeof(glm::mat4)*3)+(sizeof(glm::vec4)*6), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
         Allocate(WvpBuffer, true);
 
         Map(&WvpBuffer);
+
+        CamMat = glm::mat4(1.f);
 
         pWvp = (glm::mat4*)WvpBuffer.pData;
         pWvp[0] = glm::mat4(1.f);
@@ -180,7 +182,31 @@ public:
 
     void Move()
     {
-        glm::vec3 Move;
+        glm::vec3 Move = {};
+
+        if(Input::InputMap.Forward)
+        {
+            Move += glm::vec3(0.f, 0.f, -1.f);
+        }
+        if(Input::InputMap.Back)
+        {
+            Move += glm::vec3(0.f, 0.f, 1.f);
+        }
+        if(Input::InputMap.Right)
+        {
+            Move += glm::vec3(1.f, 0.f, 0.f);
+        }
+        if(Input::InputMap.Left)
+        {
+            Move += glm::vec3(-1.f, 0.f, 0.f);
+        }
+
+        if(glm::length(Move) == 0)
+        {
+            return;
+        }
+
+        Move = glm::normalize(Move);
 
         CamMat = glm::translate(CamMat, (Move*Speed));
 
@@ -189,13 +215,18 @@ public:
 
     void Rotate()
     {
-        glm::vec2 MouseDelta = PrevMouse - glm::vec2(Input::InputMap.MouseX, Input::InputMap.MouseY);
+        glm::vec2 MouseDelta = glm::vec2(Input::InputMap.MouseX, Input::InputMap.MouseY) - PrevMouse;
+
+        if(glm::length(MouseDelta) == 0)
+        {
+            return;
+        }
 
         PrevMouse.x = Input::InputMap.MouseX;
         PrevMouse.y = Input::InputMap.MouseY;
 
-        CamMat = glm::rotate(CamMat, MouseDelta.x, glm::vec3(0.f, 1.f, 0.f)); // rotate along the y-axis (up)
-        CamMat = glm::rotate(CamMat, MouseDelta.y, glm::vec3(1.f, 0.f, 0.f)); // rotate along the x-axis (right)
+        CamMat = glm::rotate(CamMat, MouseDelta.x/40.f, glm::vec3(0.f, 1.f, 0.f)); // rotate along the y-axis (up)
+        CamMat = glm::rotate(CamMat, MouseDelta.y/40.f, glm::vec3(1.f, 0.f, 0.f)); // rotate along the x-axis (right)
 
         pWvp[1] = glm::inverse(CamMat);
     }
@@ -229,7 +260,7 @@ public:
 private:
     glm::mat4* pWvp;
     glm::vec4 Planes[6];
-    float Speed = 0.3f;
+    float Speed = 0.05f;
     glm::vec2 PrevMouse;
 };
 
@@ -313,9 +344,9 @@ private:
     /* Scene Pass */
         struct
         {
-            VkSemaphore FrameSem;
             VkSemaphore RenderSem;
-            Resources::Fence* pGenFence;
+            VkSemaphore DrawGenSem;
+            Resources::Fence* pFrameFence;
         } SceneSync;
 
         RenderPass ScenePass; //! > Scene wide renderpass. Passes can be added to the scene through AddPass().
@@ -382,12 +413,17 @@ private:
     uint32_t DynamicIter = 0; // Index Iterator
 
     std::unordered_map<std::string, PipeStage*> PipeStages; //! > Pipeline stages (Pipeline+Drawables) mapped to string names
+
+    /***************** TODO ******************/
+    //  Change pass stages "PipeStages" variable to an array of names that can be used to index into renderer's "PipeStages" map.
+    /*****************************************/
     std::vector<PassStage> PassStages; //! > Pipeline stages sorted by subpass.
 
     ComputePipeline DrawPipeline;
 
-    Resources::CommandBuffer* pCmdOpsBuffer;
-    Resources::CommandBuffer* pCmdRenderBuffer = nullptr; //! > Render buffer
+    Resources::CommandBuffer* pCmdOpsBuffer = nullptr; //! > General purpose spare command buffer.
+    Resources::CommandBuffer* pCmdComputeBuffer = nullptr; //! > Compute render buffer (mostly used for command generation).
+    Resources::CommandBuffer* pCmdRenderBuffer = nullptr; //! > Render buffer.
 };
 
 class AssetManager
