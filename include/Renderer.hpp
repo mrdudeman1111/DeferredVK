@@ -178,27 +178,30 @@ public:
         pWvp = (glm::mat4*)WvpBuffer.pData;
         pWvp[0] = glm::mat4(1.f);
         pWvp[2] = glm::perspective(45.f, 16.f/9.f, 0.f, 9999.f);
+        pWvp[2][1][1] *= -1.f;
     }
 
     void Move()
     {
+        printf("Pos : %f, %f, %f, \nForward Facing direction %f, %f, %f\n", CamMat[3][0], CamMat[3][1], CamMat[3][2], CamMat[0][2], CamMat[1][2], CamMat[2][2]);
+
         glm::vec3 Move = {};
 
         if(Input::InputMap.Forward)
         {
-            Move += glm::vec3(0.f, 0.f, -1.f);
+            Move += glm::vec3(CamMat[0][2], CamMat[1][2], CamMat[2][2]);
         }
         if(Input::InputMap.Back)
         {
-            Move += glm::vec3(0.f, 0.f, 1.f);
+            Move -= glm::vec3(CamMat[0][2], CamMat[1][2], CamMat[2][2]);
         }
         if(Input::InputMap.Right)
         {
-            Move += glm::vec3(1.f, 0.f, 0.f);
+            Move += glm::vec3(CamMat[0][0], CamMat[1][0], CamMat[2][0]);
         }
         if(Input::InputMap.Left)
         {
-            Move += glm::vec3(-1.f, 0.f, 0.f);
+            Move -= glm::vec3(CamMat[0][0], CamMat[1][0], CamMat[2][0]);
         }
 
         if(glm::length(Move) == 0)
@@ -211,6 +214,7 @@ public:
         CamMat = glm::translate(CamMat, (Move*Speed));
 
         pWvp[1] = glm::inverse(CamMat);
+        return;
     }
 
     void Rotate()
@@ -229,6 +233,7 @@ public:
         CamMat = glm::rotate(CamMat, MouseDelta.y/40.f, glm::vec3(1.f, 0.f, 0.f)); // rotate along the x-axis (right)
 
         pWvp[1] = glm::inverse(CamMat);
+        return;
     }
 
     void GenPlanes()
@@ -260,7 +265,7 @@ public:
 private:
     glm::mat4* pWvp;
     glm::vec4 Planes[6];
-    float Speed = 0.05f;
+    float Speed = 0.5f;
     glm::vec2 PrevMouse;
 };
 

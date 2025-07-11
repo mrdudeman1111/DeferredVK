@@ -177,7 +177,7 @@ void pbrMesh::DrawInstances(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout)
     vkCmdBindVertexBuffers(*pCmdBuff, 0, 1, MeshBuffer, &Offset);
     vkCmdBindIndexBuffer(*pCmdBuff, MeshBuffer, IndexOffset, VK_INDEX_TYPE_UINT32);
 
-    vkCmdDrawIndexedIndirect(*pCmdBuff, MeshPassBuffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+    vkCmdDrawIndexedIndirect(*pCmdBuff, MeshPassBuffer, Offset, 1, sizeof(VkDrawIndexedIndirectCommand));
 
     return;
 }
