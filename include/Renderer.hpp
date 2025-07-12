@@ -173,7 +173,12 @@ public:
 
         Map(&WvpBuffer);
 
+        MoveSpeed = 0.5f;
+
         CamMat = glm::mat4(1.f);
+
+        Position = glm::vec3(0.f, 0.f, 5.f);
+        Rotation = glm::vec3(0.f);
 
         pWvp = (glm::mat4*)WvpBuffer.pData;
         pWvp[0] = glm::mat4(1.f);
@@ -181,58 +186,66 @@ public:
         pWvp[2][1][1] *= -1.f;
     }
 
+    void Update()
+    {
+        CamMat = glm::rotate(glm::mat4(1.f), Rotation.y, glm::vec3(0.f, 1.f, 0.f)); // rotate along the y-axis (up)
+        CamMat = glm::rotate(CamMat, Rotation.x, glm::vec3(1.f, 0.f, 0.f)); // rotate along the x-axis (right)
+
+        CamMat = glm::translate(CamMat, Position);
+
+        pWvp[0] = glm::inverse(CamMat);
+    }
+
     void Move()
     {
-        printf("Pos : %f, %f, %f, \nForward Facing direction %f, %f, %f\n", CamMat[3][0], CamMat[3][1], CamMat[3][2], CamMat[0][2], CamMat[1][2], CamMat[2][2]);
+        glm::vec3 Move(0.f);
 
-        glm::vec3 Move = {};
-
-        if(Input::InputMap.Forward)
+        if(Input::GetInputMap()->Forward)
         {
             Move += glm::vec3(CamMat[0][2], CamMat[1][2], CamMat[2][2]);
         }
-        if(Input::InputMap.Back)
+        if(Input::GetInputMap()->Back)
         {
             Move -= glm::vec3(CamMat[0][2], CamMat[1][2], CamMat[2][2]);
         }
-        if(Input::InputMap.Right)
+        if(Input::GetInputMap()->Right)
         {
             Move += glm::vec3(CamMat[0][0], CamMat[1][0], CamMat[2][0]);
         }
-        if(Input::InputMap.Left)
+        if(Input::GetInputMap()->Left)
         {
             Move -= glm::vec3(CamMat[0][0], CamMat[1][0], CamMat[2][0]);
         }
 
-        if(glm::length(Move) == 0)
+        if(glm::length(Move) == 0.f)
         {
             return;
         }
 
         Move = glm::normalize(Move);
 
-        CamMat = glm::translate(CamMat, (Move*Speed));
+        Position += Move*MoveSpeed;
 
-        pWvp[1] = glm::inverse(CamMat);
         return;
     }
 
     void Rotate()
     {
-        glm::vec2 MouseDelta = glm::vec2(Input::InputMap.MouseX, Input::InputMap.MouseY) - PrevMouse;
+        glm::vec2 MouseDelta = glm::vec2(Input::GetInputMap()->MouseX, Input::GetInputMap()->MouseY) - PrevMouse;
 
-        if(glm::length(MouseDelta) == 0)
+        /*
+        if(glm::length(MouseDelta) == 0.f)
         {
             return;
         }
+        */
 
-        PrevMouse.x = Input::InputMap.MouseX;
-        PrevMouse.y = Input::InputMap.MouseY;
+        PrevMouse.x = Input::GetInputMap()->MouseX;
+        PrevMouse.y = Input::GetInputMap()->MouseY;
 
-        CamMat = glm::rotate(CamMat, MouseDelta.x/40.f, glm::vec3(0.f, 1.f, 0.f)); // rotate along the y-axis (up)
-        CamMat = glm::rotate(CamMat, MouseDelta.y/40.f, glm::vec3(1.f, 0.f, 0.f)); // rotate along the x-axis (right)
+        Rotation.x += MouseDelta.x/40.f;
+        Rotation.y += MouseDelta.y/40.f;
 
-        pWvp[1] = glm::inverse(CamMat);
         return;
     }
 
@@ -263,9 +276,10 @@ public:
     glm::mat4 CamMat;
 
 private:
+    glm::vec3 Position, Rotation;
     glm::mat4* pWvp;
     glm::vec4 Planes[6];
-    float Speed = 0.5f;
+    float MoveSpeed = 0.5f;
     glm::vec2 PrevMouse;
 };
 

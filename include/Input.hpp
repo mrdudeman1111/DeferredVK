@@ -2,7 +2,7 @@
 
 namespace Input
 {
-    struct
+    struct InputMap_t
     {
         bool Forward;
         bool Back;
@@ -10,7 +10,9 @@ namespace Input
         bool Right;
         float MouseX;
         float MouseY;
-    } InputMap;
+    };
+
+    InputMap_t* GetInputMap();
 
     bool PollInputs();
 }

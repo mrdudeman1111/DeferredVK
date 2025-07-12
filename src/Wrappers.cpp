@@ -661,7 +661,7 @@ void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const 
     VkPipelineRasterizationStateCreateInfo RasterState{};
     RasterState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     RasterState.lineWidth = 1.f;
-    RasterState.cullMode = VK_CULL_MODE_BACK_BIT;
+    RasterState.cullMode = VK_CULL_MODE_NONE;
     RasterState.polygonMode = VK_POLYGON_MODE_FILL;
     RasterState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     RasterState.depthClampEnable = VK_FALSE;

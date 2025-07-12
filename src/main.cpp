@@ -43,15 +43,20 @@ int main()
     Pipeline* pForwardPipe = Scene.CreatePipeline("Forward Pipeline", 0, "Vert.spv", "Frag.spv", 1, &ColorState);
 
     pbrMesh* pMesh = AssetMan.CreateMesh("tMesh.glb", "Forward Pipeline");
+    pbrMesh* pWorldMesh = AssetMan.CreateMesh("tPlane.glb", "Forward Pipeline");
 
     Drawable* pMeshInstance = Scene.CreateDrawable(pMesh, true);
+    Drawable* pWorldInstance = Scene.CreateDrawable(pWorldMesh, true);
 
     pMeshInstance->SetTransform(glm::vec3(0.f), glm::vec3(0.f), glm::vec3(1.f));
     pMeshInstance->UpdateTransform();
 
+    pWorldInstance->SetTransform(glm::vec3(0.f), glm::vec3(0.f), glm::vec3(1.f));
+    pWorldInstance->UpdateTransform();
+
     while(Input::PollInputs())
     {
-        Scene.Render();
+       Scene.Render();
 
         //FrameIdx = GetWindow()->GetNextFrame(SceneSync.FrameSem);
 

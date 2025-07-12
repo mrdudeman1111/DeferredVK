@@ -2,6 +2,13 @@
 
 namespace Input
 {
+    InputMap_t gInput;
+
+    InputMap_t* GetInputMap()
+    {
+        return& gInput;
+    }
+
     /*! \brief Polls all input received by the window and updates the global InputMap.
     * loops through all SDL_Event(s), processing important inputs and ignoring unimportant inputs. returns false when the quit signal has been received.
     */
@@ -18,19 +25,19 @@ namespace Input
             {
                 if(FrameEvent.key.key == SDLK_W)
                 {
-                    Input::InputMap.Forward = true;
+                    gInput.Forward = true;
                 }
                 else if(FrameEvent.key.key == SDLK_S)
                 {
-                    Input::InputMap.Back = true;
+                    gInput.Back = true;
                 }
                 else if(FrameEvent.key.key == SDLK_A)
                 {
-                    Input::InputMap.Left = true;
+                    gInput.Left = true;
                 }
                 else if(FrameEvent.key.key == SDLK_D)
                 {
-                    Input::InputMap.Right = true;
+                    gInput.Right = true;
                 }
             }
             else if(FrameEvent.type == SDL_EVENT_KEY_UP)
@@ -41,25 +48,25 @@ namespace Input
                 }
                 else if(FrameEvent.key.key == SDLK_W)
                 {
-                    Input::InputMap.Forward = false;
+                    gInput.Forward = false;
                 }
                 else if(FrameEvent.key.key == SDLK_S)
                 {
-                    Input::InputMap.Back = false;
+                    gInput.Back = false;
                 }
                 else if(FrameEvent.key.key == SDLK_A)
                 {
-                    Input::InputMap.Left = false;
+                    gInput.Left = false;
                 }
                 else if(FrameEvent.key.key == SDLK_D)
                 {
-                    Input::InputMap.Right = false;
+                    gInput.Right = false;
                 }
             }
             else if(FrameEvent.type == SDL_EVENT_MOUSE_MOTION)
             {
-                Input::InputMap.MouseX = FrameEvent.motion.x;
-                Input::InputMap.MouseY = FrameEvent.motion.y;
+                gInput.MouseX += FrameEvent.motion.xrel;
+                gInput.MouseY += FrameEvent.motion.yrel;
             }
         }
 

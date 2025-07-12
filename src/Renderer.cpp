@@ -165,7 +165,7 @@ void pbrMesh::AddInstance(uint32_t InstIdx)
 void pbrMesh::GenDraws(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout)
 {
     vkCmdBindDescriptorSets(*pCmdBuff, VK_PIPELINE_BIND_POINT_COMPUTE, Layout, 1, 1, &pMeshPassSet->DescSet, 0, nullptr);
-    vkCmdDispatch(*pCmdBuff, 1+(Instances.size()-1)/64, 1, 1);
+    vkCmdDispatch(*pCmdBuff, 1+((Instances.size()-1)/64), 1, 1);
 }
 
 void pbrMesh::DrawInstances(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout)
@@ -547,6 +547,7 @@ void SceneRenderer::Render()
 
     SceneCam->Rotate();
     SceneCam->Move();
+    SceneCam->Update();
 
     /* Update descriptor Information (i.e. instance lists and transforms) */
     for(PassStage& pStage : PassStages)
