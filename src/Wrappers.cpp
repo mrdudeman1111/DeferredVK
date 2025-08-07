@@ -1,14 +1,24 @@
+#include "Wrappers.hpp"
 #include "Framework.hpp"
 
 #include <iostream>
 #include <fstream>
+#include <vulkan/vulkan_core.h>
 
 namespace Resources
 {
     void Fence::Wait()
     {
-        vkWaitForFences(GetContext()->Device, 1, &vkFence, true, UINT64_MAX);
-        vkResetFences(GetContext()->Device, 1, &vkFence);
+        if(bInUse)
+        {
+          vkWaitForFences(GetContext()->Device, 1, &vkFence, true, UINT64_MAX);
+          vkResetFences(GetContext()->Device, 1, &vkFence);
+          bInUse = false;
+        }
+        else
+        {
+          return;
+        }
     }
 
     VkFence* Fence::GetFence()
@@ -16,9 +26,17 @@ namespace Resources
         if(bInUse)
         {
             std::cout << "Fence is being obtained, but is currently in use. You should probably reset the fence using Fence::Wait() before reobtaining.\n";
+            throw std::runtime_error("");
         }
 
+        bInUse = true;
+
         return &vkFence;
+    }
+
+    Image::Image()
+    {
+
     }
 
     Image::~Image()
@@ -26,10 +44,20 @@ namespace Resources
         vkDestroyImage(GetContext()->Device, Img, nullptr);
     }
 
+    Buffer::Buffer(std::string Name) : Name(Name)
+    {
+
+    }
+    
     Buffer::~Buffer()
     {
         std::cout << "Destroying Buffer " << Name << '\n';
         vkDestroyBuffer(GetContext()->Device, Buff, nullptr);
+    }
+    
+    CommandBuffer::CommandBuffer()
+    {
+
     }
 
     CommandBuffer::~CommandBuffer()
@@ -113,6 +141,11 @@ namespace Resources
 
     void DescriptorSet::Update(DescUpdate* pUpdateInfos, size_t Count)
     {
+        if(DescSet== VK_NULL_HANDLE)
+        {
+            throw std::runtime_error("failed to update descriptor set : Descriptor set is NULL\n");
+        }
+
         std::vector<VkWriteDescriptorSet> WriteInfos = {};
         std::vector<VkDescriptorBufferInfo> WriteBuffers = {};
 
@@ -315,7 +348,7 @@ namespace Allocators
         AllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         AllocInfo.descriptorPool = DescPool;
         AllocInfo.descriptorSetCount = 1;
-        AllocInfo.pSetLayouts = &DescLayout->Layout;
+        AllocInfo.pSetLayouts = *DescLayout;
 
         if((Err = vkAllocateDescriptorSets(GetContext()->Device, &AllocInfo, &Ret->DescSet)) != VK_SUCCESS)
         {
@@ -542,6 +575,7 @@ VkPipelineDepthStencilStateCreateInfo* PipelineProfile::GetDepthStencil()
     DepthState.stencilTestEnable = bStencilTesting;
     DepthState.depthTestEnable = bDepthTesting;
     DepthState.depthWriteEnable = VK_TRUE;
+    DepthState.depthCompareOp = DepthCompareOp;
 
     return &DepthState;
 }
@@ -661,7 +695,7 @@ void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const 
     VkPipelineRasterizationStateCreateInfo RasterState{};
     RasterState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     RasterState.lineWidth = 1.f;
-    RasterState.cullMode = VK_CULL_MODE_NONE;
+    RasterState.cullMode = VK_CULL_MODE_BACK_BIT;
     RasterState.polygonMode = VK_POLYGON_MODE_FILL;
     RasterState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     RasterState.depthClampEnable = VK_FALSE;
@@ -672,11 +706,6 @@ void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const 
     BlendState.attachmentCount = OutputBlending.size();
     BlendState.pAttachments = OutputBlending.data();
     BlendState.logicOpEnable = VK_FALSE;
-
-    VkPipelineVertexInputStateCreateInfo VtxInput{};
-    VtxInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    VtxInput.vertexAttributeDescriptionCount = 0;
-    VtxInput.vertexBindingDescriptionCount = 0;
 
     VkPipelineLayoutCreateInfo LayCI{};
     LayCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

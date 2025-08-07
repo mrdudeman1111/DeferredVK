@@ -6,9 +6,11 @@
 // https://github.com/SaschaWillems/Vulkan/blob/master/examples/indirectdraw
 // https://docs.vulkan.org/samples/latest/samples/performance/multi_draw_indirect/README.html
 
+#define MAX_RENDERABLE_INSTANCES 600
+
 layout(local_size_x = 64) in;
 
-struct VkDrawIndexedIndirectCommand
+struct VkDrawCommand
 {
     uint IndexCount;
     uint InstanceCount;
@@ -37,13 +39,15 @@ layout(set = 0, binding = 0) uniform Cam_t
     vec4 Planes[6];
 } Camera;
 
-layout(set = 0, binding = 1) buffer readonly StaticBuff
+// static scene elements
+layout(std430, set = 0, binding = 1) buffer readonly StaticBuff
 {
     mat4 Transforms[];
     //uint IDs[];
 } StatSceneBuffer;
 
-layout(set = 0, binding = 2) buffer readonly DynamicBuff
+// dynamic scene elements
+layout(std430, set = 0, binding = 2) buffer readonly DynamicBuff
 {
     mat4 Transforms[];
 } DynSceneBuffer;
@@ -53,13 +57,18 @@ layout(set = 0, binding = 2) buffer readonly DynamicBuff
 //     CullBounds Bounds[];
 // } Bounds;
 
-layout(set = 1, binding = 0) buffer Draw_t
+layout(std430, set = 1, binding = 0) buffer Draw_t
 {
-    VkDrawIndexedIndirectCommand Draw;
-    uint MeshBounds;
-    uint InstanceCount;
-    uint MeshInstanceIndices[]; // manually map the instances to the global instance structure. (some meshes may have instances at indices like 1, 4, 12, 48, 49, 61, 76, etc. This lists the instances in the global instance buffer that represents this mesh's instances.)
-} MeshDraw;
+    VkDrawCommand Cmd; // out
+
+    uint MeshBounds; // in
+    uint InstanceCount; // in
+
+    uint InstanceSceneIndices[MAX_RENDERABLE_INSTANCES]; // in // maps MeshInstances[gl_InstanceIndex] to the scene object/instance to be rendered. (in other words use InstanceSceneIndex[MeshInstances[gl_InstanceIndex]] to get the index of the mesh transform in scene buffer.)
+    uint VisibleInstances[]; // out // maps the instance (gl_InstanceIndex) to the instance to be rendered. (While mesh X might have instances at scene index 3, 5, 6, 12, 19, and 31, most of these get culled. So rendered meshes, instances that haven't been culled, are stored here.)
+} Mesh;
+
+// idea : instead of mapping gl_InstanceIndex to be drawn, map the meshe's scene index.
 
 void FrustrumCull(mat4 Mat, mat4 ModelTransform)
 {
@@ -70,12 +79,14 @@ void main()
 {
     uint id = gl_GlobalInvocationID.x;
 
-    if(id >= MeshDraw.InstanceCount)
+    if(id >= Mesh.InstanceCount)
     {
-        MeshDraw.MeshInstanceIndices[id] = 999999999;
+        Mesh.VisibleInstances[id] = 9999999;
         return;
     }
 
-    MeshDraw.MeshInstanceIndices[MeshDraw.Draw.InstanceCount] = id;
-    MeshDraw.Draw.InstanceCount = MeshDraw.Draw.InstanceCount+1;
+    Mesh.VisibleInstances[Mesh.Cmd.InstanceCount] = Mesh.InstanceSceneIndices[id];
+    Mesh.Cmd.InstanceCount = Mesh.Cmd.InstanceCount+1;
+
+    return;
 }

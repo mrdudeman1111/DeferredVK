@@ -1,4 +1,5 @@
 #include <iostream>
+#include <vulkan/vulkan_core.h>
 
 #include "Renderer.hpp"
 
@@ -8,18 +9,23 @@ AssetManager AssetMan;
 int main()
 {
     Context* pCtx = GetContext();
+    
+    #ifdef DEBUG_MODE
+        std::cout << "Debug mode enabled\n";
+    #endif
 
     AssetMan.pRenderer = &Scene;
 
     Scene.AddFrameBufferAttachment(VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
     VkClearValue ColorClear; ColorClear.color.float32[0] = 0.f; ColorClear.color.float32[1] = 0.f; ColorClear.color.float32[2] = 0.f; ColorClear.color.float32[3] = 0.f;
+
     VkClearValue DepthClear; DepthClear.depthStencil.depth = 1.f;
 
     // Swapchain/output attachment
     Scene.AddRenderAttachment(GetWindow()->SurfFormat.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, &ColorClear, VK_SAMPLE_COUNT_1_BIT);
     // Depth attachment
-    Scene.AddRenderAttachment(VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR, &DepthClear, VK_SAMPLE_COUNT_1_BIT);
+    Scene.AddRenderAttachment(VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR, &DepthClear, VK_SAMPLE_COUNT_1_BIT);
 
     Subpass ForwardPass;
     // Swapchain/output attachment
@@ -42,21 +48,25 @@ int main()
 
     Pipeline* pForwardPipe = Scene.CreatePipeline("Forward Pipeline", 0, "Vert.spv", "Frag.spv", 1, &ColorState);
 
-    pbrMesh* pMesh = AssetMan.CreateMesh("tMesh.glb", "Forward Pipeline");
-    pbrMesh* pWorldMesh = AssetMan.CreateMesh("tPlane.glb", "Forward Pipeline");
+    uint32_t tMeshCount;
+    pbrMesh** pMesh = AssetMan.CreateMesh("tMesh.glb", "Forward Pipeline", tMeshCount);
+    uint32_t tWorldCount;
+    pbrMesh** pWorldMesh = AssetMan.CreateMesh("tPlane.glb", "Forward Pipeline", tWorldCount);
 
-    Drawable* pMeshInstance = Scene.CreateDrawable(pMesh, true);
-    Drawable* pWorldInstance = Scene.CreateDrawable(pWorldMesh, true);
+    Drawable* pMeshInstance = Scene.CreateDrawable(pMesh[0], true);
+    Drawable* pWorldInstance = Scene.CreateDrawable(pWorldMesh[0], true);
 
-    pMeshInstance->SetTransform(glm::vec3(0.f), glm::vec3(0.f), glm::vec3(1.f));
+    pMeshInstance->SetTransform(glm::vec3(0.f, 1.f, 0.f), glm::vec3(0.f), glm::vec3(1.f));
     pMeshInstance->UpdateTransform();
 
-    pWorldInstance->SetTransform(glm::vec3(0.f), glm::vec3(0.f), glm::vec3(1.f));
+    pWorldInstance->SetTransform(glm::vec3(0.f), glm::vec3(0.f), glm::vec3(1000.f));
     pWorldInstance->UpdateTransform();
 
     while(Input::PollInputs())
     {
-       Scene.Render();
+        Scene.Render();
+        // wait for current render to update resources??
+        Scene.Update();
 
         //FrameIdx = GetWindow()->GetNextFrame(SceneSync.FrameSem);
 

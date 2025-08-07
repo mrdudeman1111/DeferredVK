@@ -1,141 +1,14 @@
 #pragma once
 
-#include "Framework.hpp"
 #include "Input.hpp"
-
-#include "glm/gtc/matrix_transform.hpp"
+#include "Mesh.hpp"
 
 #include <iostream>
 #include <unordered_map>
 #include <stdexcept>
 
-#define MAX_RENDERABLE_INSTANCES 600
-
-// seperate drawables and meshes.
-
-/*! Vertex structure containing all needed attributes */
-struct Vertex
-{
-    glm::vec3 Position; //! > Position of the vertex in 3D-space
-    glm::vec3 Normal; //! > Facing normal of the vertex.
-    glm::vec2 UV; //! > UV coordinates of the vertex, for mapping to textures.
-};
-
-/*! Texture structure containing everything needed to use an image as a mesh texture (or 2D texture) */
-struct Texture
-{
-    Resources::Image* Img = nullptr;
-};
-
-// todo: implement convex hulls as culling shapes.
-struct CullingBox
-{
-    glm::vec3 Vertices[4];
-};
-
-struct pbrMeshDescriptors
-{
-    VkDrawIndirectCommand cmdIndirectDraw;
-    uint32_t MeshBoundIdx;
-    uint32_t InstCount;
-    std::vector<uint32_t> MeshInstances;
-};
-
-class Cullable
-{
-    CullingBox CullBound;
-};
-
-class Instanced
-{
-public:
-    Instanced() : MeshPassBuffer("Instanced Mesh Buffer") {}
-
-    static Resources::DescriptorLayout* pMeshPassLayout;
-
-    virtual void GenDraws(VkCommandBuffer* pCmdBuffer, VkPipelineLayout Layout) = 0;
-    virtual void DrawInstances(VkCommandBuffer* pCmdBuffer, VkPipelineLayout Layout) = 0;
-    virtual void AddInstance(uint32_t InstanceIndex) = 0;
-    void Update();
-
-    Resources::DescriptorSet* pMeshPassSet;
-
-protected:
-    bool bInstanceDataDirty;
-
-    std::vector<uint32_t> Instances;
-    Resources::Buffer MeshPassBuffer;
-};
-
-/*! Contains physical description of a mesh */
-class pbrMesh : public Instanced
-{
-public:
-    Resources::DescriptorLayout MeshLayout;
-    Resources::DescriptorSet MeshSet;
-    CullingBox CullBound;
-
-    pbrMesh();
-    ~pbrMesh()
-    {
-        delete[] pVertices;
-        pVertices = nullptr;
-        delete[] pIndices;
-        pIndices = nullptr;
-    }
-
-    void Bake();
-
-    Vertex* pVertices;
-    uint32_t VertCount;
-
-    uint32_t* pIndices;
-    uint32_t IndexCount;
-
-    /* Inherited from instance */
-        /*! \brief Generates the draw commands (and performs occlusion and frustum culling) for the instances*/
-        void GenDraws(VkCommandBuffer* pCmdBuffer, VkPipelineLayout Layout);
-
-        /*! \brief Renders all visible instances of this mesh. */
-        void DrawInstances(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout);
-
-        void AddInstance(uint32_t InstanceIndex);
-
-    /*! \brief Byte offset of the index array in the mesh buffer. */
-    uint32_t IndexOffset;
-    Resources::Buffer MeshBuffer;
-
-private:
-
-    Texture Albedo = {};
-    Texture Normal = {};
-};
-
-/*! Contains information needed for mesh instance to be rendered. */
-class Drawable
-{
-public:
-    Drawable(Resources::Buffer* SceneBuffer) : pSceneBuffer(SceneBuffer) {};
-
-    void SetTransform(glm::vec3 Position = {0.f, 0.f, 0.f}, glm::vec3 Rotation = {0.f, 0.f, 0.f}, glm::vec3 Scale = {1.f, 1.f, 1.f});
-
-    void Translate(glm::vec3 Translation);
-
-    void Rotate(glm::vec3 Rotation);
-
-    void Scale(glm::vec3 Scale);
-
-    void UpdateTransform();
-
-    bool bStatic;
-    uint32_t ObjIdx;
-
-    Resources::Buffer* pSceneBuffer;
-
-    glm::mat4 Transform;
-
-    pbrMesh* pMesh;
-};
+#define MAX_STATIC_SCENE_SIZE 10000
+#define MAX_DYNAMIC_SCENE_SIZE 5000 
 
 //! Pipeline stage in a renderpass.
 /*!
@@ -143,8 +16,13 @@ public:
 */
 struct PipeStage
 {
-    // Call when 
+    // Call to update all owned meshes. (called every frame to reset draw information, this function must be called before UpdateDraws())
+    void Update();
+
+    // Call to regenerate draw lists (called every frame so that culling can be performed).
     void UpdateDraws(Resources::CommandBuffer* pCmdBuffer, VkPipelineLayout ComputeLayout);
+
+    // Call to Draw all owned meshes with this pipeline.
     void Draw(Resources::CommandBuffer* pCmdBuffer);
 
     Pipeline* Pipe = nullptr;
@@ -158,6 +36,8 @@ struct PipeStage
 */
 struct PassStage
 {
+    void Update();
+
     std::vector<PipeStage*> PipeStages;
 };
 
@@ -165,111 +45,15 @@ struct PassStage
 class Camera
 {
 public:
-    Camera() : WvpBuffer("Camera WVP Buffer")
-    {
-        CreateBuffer(WvpBuffer, (sizeof(glm::mat4)*3)+(sizeof(glm::vec4)*6), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    Camera();
 
-        Allocate(WvpBuffer, true);
+    void Update();
 
-        Map(&WvpBuffer);
+    void Move();
 
-        MoveSpeed = 0.5f;
+    void Rotate();
 
-        CamMat = glm::mat4(1.f);
-
-        Position = glm::vec3(0.f, 0.f, 5.f);
-        Rotation = glm::vec3(0.f);
-
-        pWvp = (glm::mat4*)WvpBuffer.pData;
-        pWvp[0] = glm::mat4(1.f);
-        pWvp[2] = glm::perspective(45.f, 16.f/9.f, 0.f, 9999.f);
-        pWvp[2][1][1] *= -1.f;
-    }
-
-    void Update()
-    {
-        CamMat = glm::rotate(glm::mat4(1.f), Rotation.y, glm::vec3(0.f, 1.f, 0.f)); // rotate along the y-axis (up)
-        CamMat = glm::rotate(CamMat, Rotation.x, glm::vec3(1.f, 0.f, 0.f)); // rotate along the x-axis (right)
-
-        CamMat = glm::translate(CamMat, Position);
-
-        pWvp[0] = glm::inverse(CamMat);
-    }
-
-    void Move()
-    {
-        glm::vec3 Move(0.f);
-
-        if(Input::GetInputMap()->Forward)
-        {
-            Move += glm::vec3(CamMat[0][2], CamMat[1][2], CamMat[2][2]);
-        }
-        if(Input::GetInputMap()->Back)
-        {
-            Move -= glm::vec3(CamMat[0][2], CamMat[1][2], CamMat[2][2]);
-        }
-        if(Input::GetInputMap()->Right)
-        {
-            Move += glm::vec3(CamMat[0][0], CamMat[1][0], CamMat[2][0]);
-        }
-        if(Input::GetInputMap()->Left)
-        {
-            Move -= glm::vec3(CamMat[0][0], CamMat[1][0], CamMat[2][0]);
-        }
-
-        if(glm::length(Move) == 0.f)
-        {
-            return;
-        }
-
-        Move = glm::normalize(Move);
-
-        Position += Move*MoveSpeed;
-
-        return;
-    }
-
-    void Rotate()
-    {
-        glm::vec2 MouseDelta = glm::vec2(Input::GetInputMap()->MouseX, Input::GetInputMap()->MouseY) - PrevMouse;
-
-        /*
-        if(glm::length(MouseDelta) == 0.f)
-        {
-            return;
-        }
-        */
-
-        PrevMouse.x = Input::GetInputMap()->MouseX;
-        PrevMouse.y = Input::GetInputMap()->MouseY;
-
-        Rotation.x += MouseDelta.x/40.f;
-        Rotation.y += MouseDelta.y/40.f;
-
-        return;
-    }
-
-    void GenPlanes()
-    {
-        for(uint32_t i = 0; i < 3; i++)
-        {
-            for(uint32_t x = 0; x < 2; x++)
-            {
-                float sign = x ? 1.f : -1.f;
-
-                for(uint32_t k = 0; k < 4; k++)
-                {
-                    glm::mat4 View = glm::inverse(CamMat);
-                    Planes[2*i+x][k] = View[k][3] + sign * View[k][i];
-                }
-            }
-        }
-
-        for(glm::vec4& pl : Planes)
-        {
-            pl /= static_cast<float>(glm::length(glm::vec3(pl)));
-        }
-    }
+    void GenPlanes();
 
     Resources::Buffer WvpBuffer;
 
@@ -279,7 +63,7 @@ private:
     glm::vec3 Position, Rotation;
     glm::mat4* pWvp;
     glm::vec4 Planes[6];
-    float MoveSpeed = 0.5f;
+    float MoveSpeed;
     glm::vec2 PrevMouse;
 };
 
@@ -342,6 +126,8 @@ public:
     void AddPass(Subpass* pSubpass);
 
     void Bake();
+    
+    void Update();
 
     void Render();
 
@@ -363,10 +149,11 @@ private:
     /* Scene Pass */
         struct
         {
-            VkSemaphore RenderSem;
             VkSemaphore DrawGenSem;
             Resources::Fence* pFrameFence;
         } SceneSync;
+
+        std::vector<VkSemaphore> RenderSemaphores;
 
         RenderPass ScenePass; //! > Scene wide renderpass. Passes can be added to the scene through AddPass().
 
@@ -442,6 +229,7 @@ private:
 
     Resources::CommandBuffer* pCmdOpsBuffer = nullptr; //! > General purpose spare command buffer.
     Resources::CommandBuffer* pCmdComputeBuffer = nullptr; //! > Compute render buffer (mostly used for command generation).
+public: // todo: remove
     Resources::CommandBuffer* pCmdRenderBuffer = nullptr; //! > Render buffer.
 };
 
@@ -452,7 +240,7 @@ class AssetManager
         *
         *   Uses tinygltf to load a gltf file and registers the mesh with the specified pipeline.
         */
-        pbrMesh* CreateMesh(std::string Path, std::string PipeName);
+        pbrMesh** CreateMesh(std::string Path, std::string PipeName, uint32_t& MeshCount);
 
         SceneRenderer* pRenderer;
 };

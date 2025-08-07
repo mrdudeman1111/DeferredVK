@@ -3,10 +3,10 @@ project("Proj")
 
 find_package(Vulkan REQUIRED)
 
-add_subdirectory(${CMAKE_SOURCE_DIR}/ThirdParty)
+#add_subdirectory(${CMAKE_SOURCE_DIR}/ThirdParty)
 
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_BINARY_DIR}/ThirdParty/SDL")
-find_package(SDL3 CONFIG REQUIRED)
+#list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_BINARY_DIR}/ThirdParty/SDL")
+find_package(SDL3 REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
@@ -21,5 +21,4 @@ target_link_libraries(VkScene Vulkan::Vulkan SDL3::SDL3-shared SDL3::Headers)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/Shaders)
 
-target_compile_definitions(VkScene PUBLIC shader_path="${CMAKE_BINARY_DIR}/Shaders/")
-target_compile_definitions(VkScene PRIVATE $<$<CONFIG:Debug>:DEBUG_MODE=1>)
+target_compile_definitions(VkScene PRIVATE shader_path="${CMAKE_BINARY_DIR}/Shaders/" PUBLIC $<$<CONFIG:Debug>:DEBUG_MODE> $<$<CONFIG:Release>:RELEASE_MODE>)

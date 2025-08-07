@@ -1,6 +1,9 @@
 #include "Framework.hpp"
 
+#include <cstdint>
+#include <cstring>
 #include <stdexcept>
+#include <vulkan/vulkan_core.h>
 
 Window* gWindow; // The Framework's global context.
 
@@ -20,7 +23,18 @@ public:
 
     ~Memory()
     {
+        for(auto Mem : HostHeaps)
+        {
+            Mem.Destroy();
+        }
+        
         HostHeaps.clear();
+
+        for(auto Mem : LocalHeaps)
+        {
+            Mem.Destroy();
+        }
+        
         LocalHeaps.clear();
     }
 
@@ -28,21 +42,24 @@ private:
 
     struct MemoryHeap
     {
-        MemoryHeap() {}
-        ~MemoryHeap() { vkFreeMemory(gContext->Device, Memory, nullptr); }
+        MemoryHeap() : AllocTail(0), Memory(VK_NULL_HANDLE), pMapped(nullptr) {}
+        ~MemoryHeap() {}
 
-        size_t Size;
-        size_t Available;
+        void Destroy() { vkFreeMemory(gContext->Device, Memory, nullptr); }
 
-        uint32_t AllocTail = 0;
+        size_t Size; // the size of the memory heap
+        size_t Available; // the amount of available memory in bytes
 
-        VkDeviceMemory Memory;
+        uint32_t AllocTail; // The allocation "tail" (First byte of unallocated memory)
+
+        VkDeviceMemory Memory; // the memory heap's memory handle
+        void* pMapped; // pointer to mapped host visible memory
     };
 
 public:
     std::vector<MemoryHeap> HostHeaps; // host visible memory heaps
     std::vector<MemoryHeap> LocalHeaps; // device local memory heaps
-}* gAllocationMemory;
+}* gApplicationMemory;
 
 
 bool InitWrapperFW(uint32_t Width, uint32_t Height)
@@ -52,7 +69,7 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
     // initiate globals
     gContext = new Context();
     gWindow = new Window();
-    gAllocationMemory = new Memory();
+    gApplicationMemory = new Memory();
 
     // initiate SDL for window creation and input management.
     SDL_Init(SDL_INIT_VIDEO);
@@ -68,7 +85,7 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
     const char* const* SdlExt = SDL_Vulkan_GetInstanceExtensions(&ExtCount);
 
     // validation layers to enable for the vulkan instance
-    std::vector<const char*> Layers = { "VK_LAYER_KHRONOS_validation" /*, "VK_LAYER_LUNARG_crash_diagnostic" */ }; // TODO use a runtime flag to set a define which will set the vulkan layers and extensions to run.
+    std::vector<const char*> Layers = { "VK_LAYER_KHRONOS_validation"/*, "VK_LAYER_LUNARG_crash_diagnostic"*/};  // TODO use a runtime flag to set a define which will set the vulkan layers and extensions to run.
 
     // instance creation info
     VkInstanceCreateInfo InstCI{};
@@ -139,16 +156,41 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
     {
         if(Families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT && GraphicsFamily == UINT32_MAX)
         {
+            Families[i].queueCount--;
             GraphicsFamily = i;
         }
         else if(Families[i].queueFlags & VK_QUEUE_COMPUTE_BIT && ComputeFamily == UINT32_MAX)
         {
+            Families[i].queueCount--;
             ComputeFamily = i;
         }
         else if(Families[i].queueFlags & VK_QUEUE_TRANSFER_BIT && !bTransferFamilyFound)
         {
+            Families[i].queueCount--;
             TransferFamily = i;
             bTransferFamilyFound = true;
+        }
+    }
+    
+    if(GraphicsFamily == UINT32_MAX || ComputeFamily == UINT32_MAX || TransferFamily == UINT32_MAX)
+    {
+        for(uint32_t i = 0; i < FamilyCount; i++)
+        {
+            if(Families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT && Families[i].queueCount > 0 && GraphicsFamily == UINT32_MAX)
+            {
+                Families[i].queueCount--;
+                GraphicsFamily = i;
+            }
+            if(Families[i].queueFlags & VK_QUEUE_COMPUTE_BIT && Families[i].queueCount > 0 && ComputeFamily == UINT32_MAX)
+            {
+                Families[i].queueCount--;                
+                ComputeFamily = i;
+            }
+            if(Families[i].queueFlags & VK_QUEUE_TRANSFER_BIT && Families[i].queueCount > 0 && TransferFamily == UINT32_MAX)
+            {
+                Families[i].queueCount--;                
+                TransferFamily = i;
+            }
         }
     }
 
@@ -162,24 +204,28 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
 
         // Graphics/Compute Queue creation info
         VkDeviceQueueCreateInfo QueueCI[3] = {};
+        const float Prio[] = {1.f, 1.f};
 
         QueueCI[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         QueueCI[0].queueCount = 1;
         QueueCI[0].queueFamilyIndex = GraphicsFamily;
+        QueueCI[0].pQueuePriorities = Prio;
 
         QueueCI[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        QueueCI[1].queueCount = bTransferFamilyFound ? 2 : 1;
+        QueueCI[1].queueCount = bTransferFamilyFound ? 1 : 2;
         QueueCI[1].queueFamilyIndex = ComputeFamily;
+        QueueCI[1].pQueuePriorities = Prio;
 
         if(bTransferFamilyFound)
         {
             QueueCI[2].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
             QueueCI[2].queueCount = 1;
             QueueCI[2].queueFamilyIndex = TransferFamily;
+            QueueCI[2].pQueuePriorities = Prio;
         }
         else
         {
-            std::cout << "transfer family not available, using graphics family instead.\n";
+            std::cout << "transfer family not available, using Compute family instead.\n";
         }
 
         // Device extensions to enable
@@ -190,7 +236,7 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
         DevCI.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         DevCI.enabledExtensionCount = DevExt.size();
         DevCI.ppEnabledExtensionNames = DevExt.data();
-        DevCI.queueCreateInfoCount = 3;
+        DevCI.queueCreateInfoCount = bTransferFamilyFound ? 3 : 2;
         DevCI.pQueueCreateInfos = QueueCI;
 
         // Create device
@@ -209,7 +255,7 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
         }
         else
         {
-            vkGetDeviceQueue(gContext->Device, GraphicsFamily, 1, &gContext->TransferQueue);
+            vkGetDeviceQueue(gContext->Device, ComputeFamily, 1, &gContext->TransferQueue);
         }
 
         gContext->GraphicsFamily = GraphicsFamily;
@@ -238,7 +284,7 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
         SwapCI.clipped = VK_FALSE;
         SwapCI.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         SwapCI.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-        SwapCI.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+        SwapCI.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
 
         SwapCI.imageArrayLayers = 1;
         SwapCI.imageFormat = gWindow->SurfFormat.format;
@@ -247,7 +293,7 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
         SwapCI.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         SwapCI.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-        SwapCI.minImageCount = 2;
+        SwapCI.minImageCount = 3;
 
         SwapCI.surface = gWindow->Surface;
 
@@ -317,13 +363,22 @@ void CloseWrapperFW()
     vkDestroyDevice(gContext->Device, nullptr);
     vkDestroyInstance(gContext->Instance, nullptr);
 
-    delete gAllocationMemory;
+    delete gApplicationMemory;
     delete gContext;
     delete gWindow;
 }
 
     void TransferAgent::Transfer(void* srcData, size_t srcSize, Resources::Buffer* dstBuff, size_t dstOffset)
     {
+        if(dstBuff->Alloc.bHostVisible)
+        {
+            if(dstBuff->pData == nullptr) throw std::runtime_error("tried to transfer to a host-visible buffer without calling map() on it first. (The buffer MUST be mapped prior to transfer).");
+            
+            memcpy(((uint8_t*)dstBuff->pData)+dstOffset, srcData, srcSize);
+
+            return;
+        }
+
         VkBufferCopy tmp;
         tmp.srcOffset = TransitTail;
         tmp.dstOffset = dstOffset;
@@ -333,9 +388,12 @@ void CloseWrapperFW()
 
         TransferBuffers.push_back(dstBuff);
 
-        memcpy(((uint8_t*)pTransitBuffer->pData)+TransitTail, srcData, srcSize);
+        uint8_t* pDst = (uint8_t*)pTransitBuffer->pData;
+        memcpy(&pDst[TransitTail], srcData, srcSize);
 
         TransitTail += srcSize;
+
+        return;
     }
 
     void TransferAgent::Transfer(void* srcData, size_t srcSize, Resources::Image* dstImg, VkExtent3D Extent, VkOffset3D ImgOffset, VkImageSubresourceLayers SubResource, VkImageLayout Layout)
@@ -413,8 +471,7 @@ void CloseWrapperFW()
         {
             pCmdBuff->Start();
 
-                for(uint32_t i = 0; i < BufferCopies.size(); i++)
-                {
+                for(uint32_t i = 0; i < BufferCopies.size(); i++) {
                     vkCmdCopyBuffer(*pCmdBuff, *pTransitBuffer, *TransferBuffers[i], 1, &BufferCopies[i]);
                 }
                 for(uint32_t i = 0; i < BuffImageCopies.size(); i++)
@@ -482,7 +539,7 @@ Resources::Fence* CreateFence(std::string Name)
     VkFenceCreateInfo FenceCI{};
     FenceCI.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 
-    if(vkCreateFence(GetContext()->Device, &FenceCI, nullptr, pRet->GetFence()) != VK_SUCCESS)
+    if(vkCreateFence(GetContext()->Device, &FenceCI, nullptr, *pRet) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create fence " + Name);
     }
@@ -493,6 +550,8 @@ Resources::Fence* CreateFence(std::string Name)
 void Allocate(Resources::Buffer& Buffer, bool bVisible)
 {
     VkResult Err;
+    
+    Buffer.Alloc.bHostVisible = bVisible;
 
     VkMemoryRequirements MemReq;
 
@@ -504,25 +563,27 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
 
     if(bVisible)
     {
-        for(uint32_t i = 0; i < gAllocationMemory->HostHeaps.size(); i++)
+        for(uint32_t i = 0; i < gApplicationMemory->HostHeaps.size(); i++)
         {
-            size_t MemLoc = gAllocationMemory->HostHeaps[i].AllocTail + (gAllocationMemory->HostHeaps[i].AllocTail % MemReq.alignment); // align the alloc tail to the alignment requirements of our buffer.
-            size_t Size = gAllocationMemory->HostHeaps[i].Size - MemLoc;
+            size_t MemLoc = gApplicationMemory->HostHeaps[i].AllocTail + (gApplicationMemory->HostHeaps[i].AllocTail % MemReq.alignment); // align the alloc tail to the alignment requirements of our buffer.
+            size_t Size = gApplicationMemory->HostHeaps[i].Size - MemLoc;
 
             if(Size >= MemReq.size)
             {
                 Buffer.Alloc.Offset = MemLoc;
                 Buffer.Alloc.Size = MemReq.size;
-                Buffer.Alloc.pMemory = &gAllocationMemory->HostHeaps[i].Memory;
+                Buffer.Alloc.pMemory = &gApplicationMemory->HostHeaps[i].Memory;
 
-                Err = vkBindBufferMemory(gContext->Device, Buffer, gAllocationMemory->HostHeaps[i].Memory, MemLoc);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, gApplicationMemory->HostHeaps[i].Memory, MemLoc);
                 bBound = true;
+                
+                gApplicationMemory->HostHeaps[i].AllocTail += MemReq.size + (gApplicationMemory->HostHeaps[i].AllocTail % MemReq.alignment);
             }
         }
         if(!bBound)
         {
-            gAllocationMemory->HostHeaps.push_back({});
-            uint32_t EndIdx = gAllocationMemory->HostHeaps.size()-1;
+            gApplicationMemory->HostHeaps.push_back({});
+            uint32_t EndIdx = gApplicationMemory->HostHeaps.size()-1;
 
             if(MemReq.size > PAGE_SIZE)
             {
@@ -531,20 +592,22 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 AllocInf.memoryTypeIndex = gContext->Host;
                 AllocInf.allocationSize = MemReq.size;
 
-                if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &gAllocationMemory->HostHeaps[EndIdx].Memory) != VK_SUCCESS)
+                if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &gApplicationMemory->HostHeaps[EndIdx].Memory) != VK_SUCCESS)
                 {
                     throw std::runtime_error("Failed to allocate memory, ran out of space");
                 }
 
-                gAllocationMemory->HostHeaps[EndIdx].Size = MemReq.size;
-                gAllocationMemory->HostHeaps[EndIdx].AllocTail = 0;
-                gAllocationMemory->HostHeaps[EndIdx].Available = 0;
+                gApplicationMemory->HostHeaps[EndIdx].Size = MemReq.size;
+                gApplicationMemory->HostHeaps[EndIdx].AllocTail = 0;
+                gApplicationMemory->HostHeaps[EndIdx].Available = 0;
                 
                 Buffer.Alloc.Offset = 0;
                 Buffer.Alloc.Size = MemReq.size;
-                Buffer.Alloc.pMemory = &gAllocationMemory->HostHeaps[EndIdx].Memory;
+                Buffer.Alloc.pMemory = &gApplicationMemory->HostHeaps[EndIdx].Memory;
 
-                Err = vkBindBufferMemory(gContext->Device, Buffer, gAllocationMemory->HostHeaps[EndIdx].Memory, 0);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, gApplicationMemory->HostHeaps[EndIdx].Memory, 0);
+
+                gApplicationMemory->HostHeaps[EndIdx].AllocTail += MemReq.size + (gApplicationMemory->HostHeaps[EndIdx].AllocTail % MemReq.alignment);
             }
             else
             {
@@ -553,44 +616,48 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 AllocInf.memoryTypeIndex = gContext->Host;
                 AllocInf.allocationSize = PAGE_SIZE;
 
-                if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &gAllocationMemory->HostHeaps[EndIdx].Memory))
+                if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &gApplicationMemory->HostHeaps[EndIdx].Memory))
                 {
                     throw std::runtime_error("Failed to allocate a host heap for an allocation");
                 }
 
-                gAllocationMemory->HostHeaps[EndIdx].Size = PAGE_SIZE;
-                gAllocationMemory->HostHeaps[EndIdx].AllocTail = 0;
-                gAllocationMemory->HostHeaps[EndIdx].Available = MemReq.size - AllocInf.allocationSize;
+                gApplicationMemory->HostHeaps[EndIdx].Size = PAGE_SIZE;
+                gApplicationMemory->HostHeaps[EndIdx].AllocTail = 0;
+                gApplicationMemory->HostHeaps[EndIdx].Available = MemReq.size - AllocInf.allocationSize;
                 
                 Buffer.Alloc.Offset = 0;
                 Buffer.Alloc.Size = MemReq.size;
-                Buffer.Alloc.pMemory = &gAllocationMemory->HostHeaps[EndIdx].Memory;
+                Buffer.Alloc.pMemory = &gApplicationMemory->HostHeaps[EndIdx].Memory;
 
-                Err = vkBindBufferMemory(gContext->Device, Buffer, gAllocationMemory->HostHeaps[EndIdx].Memory, 0);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, gApplicationMemory->HostHeaps[EndIdx].Memory, 0);
+
+                gApplicationMemory->HostHeaps[EndIdx].AllocTail += MemReq.size + (gApplicationMemory->HostHeaps[EndIdx].AllocTail % MemReq.alignment);
             }
         }
     }
     else
     {
-        for(uint32_t i = 0; i < gAllocationMemory->LocalHeaps.size(); i++)
+        for(uint32_t i = 0; i < gApplicationMemory->LocalHeaps.size(); i++)
         {
-            size_t MemLoc = gAllocationMemory->LocalHeaps[i].AllocTail + (gAllocationMemory->LocalHeaps[i].AllocTail % MemReq.alignment); // align the alloc tail to the alignment requirements of our buffer.
-            size_t Size = gAllocationMemory->LocalHeaps[i].Size - MemLoc;
+            size_t MemLoc = gApplicationMemory->LocalHeaps[i].AllocTail + (gApplicationMemory->LocalHeaps[i].AllocTail % MemReq.alignment); // align the alloc tail to the alignment requirements of our buffer.
+            size_t Size = gApplicationMemory->LocalHeaps[i].Size - MemLoc;
 
             if(Size >= MemReq.size)
             {
                 Buffer.Alloc.Offset = MemLoc;
                 Buffer.Alloc.Size = MemReq.size;
-                Buffer.Alloc.pMemory = &gAllocationMemory->LocalHeaps[i].Memory;
+                Buffer.Alloc.pMemory = &gApplicationMemory->LocalHeaps[i].Memory;
 
-                Err = vkBindBufferMemory(gContext->Device, Buffer, gAllocationMemory->LocalHeaps[i].Memory, MemLoc);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, gApplicationMemory->LocalHeaps[i].Memory, MemLoc);
                 bBound = true;
+
+                gApplicationMemory->LocalHeaps[i].AllocTail += MemReq.size + (gApplicationMemory->LocalHeaps[i].AllocTail % MemReq.alignment);
             }
         }
         if(!bBound)
         {
-            gAllocationMemory->LocalHeaps.push_back({});
-            uint32_t EndIdx = gAllocationMemory->LocalHeaps.size()-1;
+            gApplicationMemory->LocalHeaps.push_back({});
+            uint32_t EndIdx = gApplicationMemory->LocalHeaps.size()-1;
 
             if(MemReq.size > PAGE_SIZE)
             {
@@ -599,20 +666,22 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 AllocInf.memoryTypeIndex = gContext->Local;
                 AllocInf.allocationSize = MemReq.size;
 
-                if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &gAllocationMemory->LocalHeaps[EndIdx].Memory) != VK_SUCCESS)
+                if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &gApplicationMemory->LocalHeaps[EndIdx].Memory) != VK_SUCCESS)
                 {
                     throw std::runtime_error("Failed to allocate memory, ran out of space");
                 }
 
-                gAllocationMemory->LocalHeaps[EndIdx].Size = MemReq.size;
-                gAllocationMemory->LocalHeaps[EndIdx].AllocTail = 0;
-                gAllocationMemory->LocalHeaps[EndIdx].Available = 0;
+                gApplicationMemory->LocalHeaps[EndIdx].Size = MemReq.size;
+                gApplicationMemory->LocalHeaps[EndIdx].AllocTail = 0;
+                gApplicationMemory->LocalHeaps[EndIdx].Available = 0;
                 
                 Buffer.Alloc.Offset = 0;
                 Buffer.Alloc.Size = MemReq.size;
-                Buffer.Alloc.pMemory = &gAllocationMemory->LocalHeaps[EndIdx].Memory;
+                Buffer.Alloc.pMemory = &gApplicationMemory->LocalHeaps[EndIdx].Memory;
 
-                Err = vkBindBufferMemory(gContext->Device, Buffer, gAllocationMemory->LocalHeaps[EndIdx].Memory, 0);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, gApplicationMemory->LocalHeaps[EndIdx].Memory, 0);
+                
+                gApplicationMemory->LocalHeaps[EndIdx].AllocTail += MemReq.size + (gApplicationMemory->LocalHeaps[EndIdx].AllocTail % MemReq.alignment);
             }
             else
             {
@@ -621,20 +690,22 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
                 AllocInf.memoryTypeIndex = gContext->Local;
                 AllocInf.allocationSize = PAGE_SIZE;
 
-                if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &gAllocationMemory->LocalHeaps[EndIdx].Memory))
+                if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &gApplicationMemory->LocalHeaps[EndIdx].Memory))
                 {
                     throw std::runtime_error("Failed to allocate a host heap for an allocation");
                 }
 
-                gAllocationMemory->LocalHeaps[EndIdx].Size = PAGE_SIZE;
-                gAllocationMemory->LocalHeaps[EndIdx].AllocTail = 0;
-                gAllocationMemory->LocalHeaps[EndIdx].Available = AllocInf.allocationSize - MemReq.size;
+                gApplicationMemory->LocalHeaps[EndIdx].Size = PAGE_SIZE;
+                gApplicationMemory->LocalHeaps[EndIdx].AllocTail = 0;
+                gApplicationMemory->LocalHeaps[EndIdx].Available = AllocInf.allocationSize - MemReq.size;
                 
                 Buffer.Alloc.Offset = 0;
                 Buffer.Alloc.Size = MemReq.size;
-                Buffer.Alloc.pMemory = &gAllocationMemory->LocalHeaps[EndIdx].Memory;
+                Buffer.Alloc.pMemory = &gApplicationMemory->LocalHeaps[EndIdx].Memory;
 
-                Err = vkBindBufferMemory(gContext->Device, Buffer, gAllocationMemory->LocalHeaps[EndIdx].Memory, 0);
+                Err = vkBindBufferMemory(gContext->Device, Buffer, gApplicationMemory->LocalHeaps[EndIdx].Memory, 0);
+                
+                gApplicationMemory->LocalHeaps[EndIdx].AllocTail += MemReq.size + (gApplicationMemory->LocalHeaps[EndIdx].AllocTail % MemReq.alignment);
             }
         }
     }
@@ -648,39 +719,45 @@ void Allocate(Resources::Image& Image, bool bVisible)
 {
     VkMemoryRequirements MemReq;
 
+    Image.Alloc.bHostVisible = bVisible;
+
     vkGetImageMemoryRequirements(gContext->Device, Image.Img, &MemReq);
 
     if(bVisible)
     {
-        for(uint32_t i = 0; i < gAllocationMemory->HostHeaps.size(); i++)
+        for(uint32_t i = 0; i < gApplicationMemory->HostHeaps.size(); i++)
         {
-            size_t MemLoc = gAllocationMemory->HostHeaps[i].AllocTail + (gAllocationMemory->HostHeaps[i].AllocTail % MemReq.alignment); // align the alloc tail to the alignment requirements of our buffer.
-            size_t Size = gAllocationMemory->HostHeaps[i].Size - MemLoc;
+            size_t MemLoc = gApplicationMemory->HostHeaps[i].AllocTail + (gApplicationMemory->HostHeaps[i].AllocTail % MemReq.alignment); // align the alloc tail to the alignment requirements of our buffer.
+            size_t Size = gApplicationMemory->HostHeaps[i].Size - MemLoc;
 
             if(Size >= MemReq.size)
             {
                 Image.Alloc.Offset = MemLoc;
                 Image.Alloc.Size = MemReq.size;
-                Image.Alloc.pMemory = &gAllocationMemory->HostHeaps[i].Memory;
+                Image.Alloc.pMemory = &gApplicationMemory->HostHeaps[i].Memory;
 
-                vkBindImageMemory(gContext->Device, Image.Img, gAllocationMemory->HostHeaps[i].Memory, MemLoc);
+                vkBindImageMemory(gContext->Device, Image.Img, gApplicationMemory->HostHeaps[i].Memory, MemLoc);
+                
+                gApplicationMemory->HostHeaps[i].AllocTail += MemReq.size + (gApplicationMemory->HostHeaps[i].AllocTail % MemReq.alignment);
             }
         }
     }
     else
     {
-        for(uint32_t i = 0; i < gAllocationMemory->LocalHeaps.size(); i++)
+        for(uint32_t i = 0; i < gApplicationMemory->LocalHeaps.size(); i++)
         {
-            size_t MemLoc = gAllocationMemory->LocalHeaps[i].AllocTail + (gAllocationMemory->LocalHeaps[i].AllocTail % MemReq.alignment); // align the alloc tail to the alignment requirements of our buffer.
-            size_t Size = gAllocationMemory->LocalHeaps[i].Size - MemLoc;
+            size_t MemLoc = gApplicationMemory->LocalHeaps[i].AllocTail + (gApplicationMemory->LocalHeaps[i].AllocTail % MemReq.alignment); // align the alloc tail to the alignment requirements of our buffer.
+            size_t Size = gApplicationMemory->LocalHeaps[i].Size - MemLoc;
 
             if(Size >= MemReq.size)
             {
                 Image.Alloc.Offset = MemLoc;
                 Image.Alloc.Size = MemReq.size;
-                Image.Alloc.pMemory = &gAllocationMemory->LocalHeaps[i].Memory;
+                Image.Alloc.pMemory = &gApplicationMemory->LocalHeaps[i].Memory;
 
-                vkBindImageMemory(gContext->Device, Image.Img, gAllocationMemory->LocalHeaps[i].Memory, MemLoc);
+                vkBindImageMemory(gContext->Device, Image.Img, gApplicationMemory->LocalHeaps[i].Memory, MemLoc);
+
+                gApplicationMemory->LocalHeaps[i].AllocTail += MemReq.size + (gApplicationMemory->LocalHeaps[i].AllocTail % MemReq.alignment);
             }
         }
     }
@@ -756,7 +833,23 @@ void Map(Resources::Buffer* pBuffer)
         std::cout << "Just tried to map an already mapped buffer.";
     }
 
-    vkMapMemory(gContext->Device, *pBuffer->Alloc.pMemory, pBuffer->Alloc.Offset, pBuffer->Alloc.Size, 0, &pBuffer->pData);
+    for(uint32_t i = 0; i < gApplicationMemory->HostHeaps.size(); i++)
+    {
+        if(&(gApplicationMemory->HostHeaps[i].Memory) == pBuffer->Alloc.pMemory) // P.S. We're comparing the ADDRESS of the handle rather than the actual value of the handle, since you can't compare vulkan handles (accurately)
+        {
+            if(gApplicationMemory->HostHeaps[i].pMapped != nullptr)
+            {
+                pBuffer->pData = ((uint8_t*)gApplicationMemory->HostHeaps[i].pMapped)+pBuffer->Alloc.Offset;
+            }
+            else
+            {
+                vkMapMemory(gContext->Device, gApplicationMemory->HostHeaps[i].Memory, 0, gApplicationMemory->HostHeaps[i].Size, 0, &gApplicationMemory->HostHeaps[i].pMapped);
+                pBuffer->pData = ((uint8_t*)gApplicationMemory->HostHeaps[i].pMapped)+pBuffer->Alloc.Offset;
+            }
+        }
+    }
+
+    return;
 }
 
 void Unmap(Resources::Buffer* pBuffer)

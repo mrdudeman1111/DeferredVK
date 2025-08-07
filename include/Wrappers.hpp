@@ -2,6 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <vulkan/vulkan_core.h>
 
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_vulkan.h"
@@ -36,11 +37,14 @@ namespace Resources
 
             VkFence* GetFence();
 
+            operator VkFence*() { return &vkFence; }
+            operator VkFence() { return vkFence; }
+
             std::string FenceName;
 
         private:
             VkFence vkFence;
-            bool bInUse;
+            bool bInUse = false;
     };
 
     /*! \brief A wrapper class that stores information about an object's binding, including a pointer to the heap/memory it's bound to */
@@ -49,6 +53,8 @@ namespace Resources
     public:
         uint32_t Size;
         uint32_t Offset;
+        
+        bool bHostVisible;
 
         VkDeviceMemory* pMemory;
     };
@@ -59,6 +65,7 @@ namespace Resources
     struct Image
     {
     public:
+        Image();
         ~Image();
 
         VkImage Img;
@@ -75,7 +82,7 @@ namespace Resources
     struct Buffer
     {
     public:
-        Buffer(std::string Name) : Name(Name) {}
+        Buffer(std::string Name);
         ~Buffer();
 
         operator VkBuffer() { return Buff; }
@@ -96,6 +103,7 @@ namespace Resources
     class CommandBuffer
     {
     public:
+        CommandBuffer();
         ~CommandBuffer();
 
         void Bake(VkCommandPool* pCmdPool);
@@ -125,12 +133,15 @@ namespace Resources
         ~DescriptorLayout();
 
         void AddBinding(VkDescriptorSetLayoutBinding Binding);
-
-        VkDescriptorSetLayout Layout = VK_NULL_HANDLE;
+        
+        operator VkDescriptorSetLayout() { return Layout; }
+        operator VkDescriptorSetLayout*() { return &Layout; }
 
         VkDescriptorSetLayoutBinding* GetBindings(uint32_t& Count) { Count = Bindings.size(); return Bindings.data(); }
 
     private:
+        VkDescriptorSetLayout Layout = VK_NULL_HANDLE;
+
         std::vector<VkDescriptorSetLayoutBinding> Bindings;
     };
 
@@ -152,16 +163,16 @@ namespace Resources
     public:
         ~DescriptorSet();
 
-        VkDescriptorSet DescSet; //! > The vulkan api handle to the allocated descriptor set.
-        DescriptorLayout* DescLayout; //! > A pointer to the descriptor layout used to create this descriptor set.
+        VkDescriptorSet DescSet = VK_NULL_HANDLE; //! > The vulkan api handle to the allocated descriptor set.
+        DescriptorLayout* DescLayout = nullptr; //! > A pointer to the descriptor layout used to create this descriptor set.
 
         //! \brief Wraps descriptor writes using a custom struct.
         void Update(DescUpdate* pUpdateInfos, size_t Count);
 
-        VkDescriptorPool* pPool;
+        VkDescriptorPool* pPool = nullptr;
     };
 
-    // Wraps FrameBuffer Information and creatioo
+    // Wraps FrameBuffer Information and creation
     class FrameBuffer
     {
     public:
@@ -287,14 +298,21 @@ public:
 
     void AddBinding(uint32_t Binding, size_t Stride, VkVertexInputRate InRate)
     {
-        VkVertexInputBindingDescription tmp{Binding, Stride, InRate};
+        VkVertexInputBindingDescription tmp{};
+        tmp.binding = Binding;
+        tmp.inputRate = InRate;
+        tmp.stride = Stride;
 
         Bindings.push_back(tmp);
     }
 
     void AddAttribute(uint32_t Binding, VkFormat Format, uint32_t Location, size_t Offset)
     {
-        VkVertexInputAttributeDescription tmp{Location, Binding, Format, Offset};
+        VkVertexInputAttributeDescription tmp{};
+        tmp.location = Location;
+        tmp.binding = Binding;
+        tmp.format = Format;
+        tmp.offset = Offset;
 
         Attributes.push_back(tmp);
     }
@@ -333,7 +351,7 @@ public:
     inline void SetProfile(PipelineProfile PipeProf) { Profile = PipeProf; }
 
     void Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const char* Frag);
-    void AddDescriptor(Resources::DescriptorLayout* pDesc) { Descriptors.push_back(pDesc->Layout); }
+    uint32_t AddDescriptor(Resources::DescriptorLayout* pDesc) { Descriptors.push_back(*pDesc); return Descriptors.size()-1; }
 
     VkPipelineLayout PipeLayout;
 
@@ -359,7 +377,7 @@ class ComputePipeline
         void Bind(VkCommandBuffer* pCmdBuffer);
 
         void Bake(const char* Comp);
-        void AddDescriptor(Resources::DescriptorLayout* pDesc) { Descriptors.push_back(pDesc->Layout); }
+        void AddDescriptor(Resources::DescriptorLayout* pDesc) { Descriptors.push_back(*pDesc); }
 
         VkPipelineLayout PipeLayout;
 

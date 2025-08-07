@@ -1,4 +1,4 @@
-#pragma once
+#pragma onc/e
 
 #include "Wrappers.hpp"
 
