@@ -33,6 +33,7 @@ void Instanced::Update()
     }
 
     #ifdef DEBUG_MODE
+    /*
         std::cout << "Indirect DrawCall as (Indirect*):\n";
             VkDrawIndexedIndirectCommand* pTmp = (VkDrawIndexedIndirectCommand*)MeshPassBuffer.pData;
 
@@ -41,6 +42,7 @@ void Instanced::Update()
             std::cout << "  firstIndex " << ((uint32_t*)MeshPassBuffer.pData)[2] << '\n';
             std::cout << "  vertexOffset " << ((int32_t*)MeshPassBuffer.pData)[3] << '\n';
             std::cout << "  firstInstance " << ((uint32_t*)MeshPassBuffer.pData)[4] << '\n';
+    */
     #endif
 
     return;

@@ -2,10 +2,15 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <vulkan/vulkan_core.h>
 
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_vulkan.h"
+
+#ifdef VK_USE_PLATFORM_XCB_KHR
+    #include <xcb/xcb.h>
+#elif __APPLE__
+    #include <TargetConditionals.h>
+#endif
 
 #include "vulkan/vulkan.h"
 
@@ -393,7 +398,7 @@ struct Context
 {
     VkInstance Instance;
     VkPhysicalDevice PhysDevice;
-    VkPhysicalDeviceFeatures PhysDeviceFeatures;
+    VkPhysicalDeviceFeatures2 PhysDeviceFeatures;
     VkDevice Device;
 
     uint32_t Local;

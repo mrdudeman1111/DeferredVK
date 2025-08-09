@@ -49,9 +49,9 @@ int main()
     Pipeline* pForwardPipe = Scene.CreatePipeline("Forward Pipeline", 0, "Vert.spv", "Frag.spv", 1, &ColorState);
 
     uint32_t tMeshCount;
-    pbrMesh** pMesh = AssetMan.CreateMesh("tMesh.glb", "Forward Pipeline", tMeshCount);
+    pbrMesh** pMesh = AssetMan.CreateMesh(working_directory"tMesh.glb", "Forward Pipeline", tMeshCount);
     uint32_t tWorldCount;
-    pbrMesh** pWorldMesh = AssetMan.CreateMesh("tPlane.glb", "Forward Pipeline", tWorldCount);
+    pbrMesh** pWorldMesh = AssetMan.CreateMesh(working_directory"tPlane.glb", "Forward Pipeline", tWorldCount);
 
     Drawable* pMeshInstance = Scene.CreateDrawable(pMesh[0], true);
     Drawable* pWorldInstance = Scene.CreateDrawable(pWorldMesh[0], true);

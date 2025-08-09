@@ -182,7 +182,7 @@ void Camera::Rotate()
     Rotation.x += MouseDelta.x/100.f;
 
     Rotation.y -= MouseDelta.y/100.f;
-    Rotation.y = std::clamp(Rotation.y, -90.f, 90.f);
+    Rotation.y = glm::clamp(Rotation.y, -90.f, 90.f);
 
     return;
 }
@@ -534,10 +534,12 @@ void SceneRenderer::Bake()
           RenderSemaphores.push_back(CreateVulkanSemaphore());
         }
 
-        VkImageMemoryBarrier SwapchainBarriers[FrameCount] = {};
+        VkImageMemoryBarrier SwapchainBarriers[FrameCount];
 
         for(uint32_t i = 0; i < FrameCount; i++)
         {
+            SwapchainBarriers[i] = {};
+
             SwapchainBarriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
             SwapchainBarriers[i].image = GetWindow()->SwapchainImages[i];
             SwapchainBarriers[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
