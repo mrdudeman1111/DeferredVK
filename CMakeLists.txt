@@ -27,4 +27,4 @@ target_link_libraries(VkScene Vulkan::Vulkan SDL3::SDL3-shared SDL3::Headers)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/Shaders)
 
-target_compile_definitions(VkScene PRIVATE shader_path="${CMAKE_BINARY_DIR}/Shaders/" PUBLIC $<$<CONFIG:Debug>:DEBUG_MODE> $<$<CONFIG:Release>:RELEASE_MODE> PUBLIC working_directory="${CMAKE_BINARY_DIR}/")
+target_compile_definitions(VkScene PRIVATE shader_path="${CMAKE_BINARY_DIR}/Shaders/" PUBLIC $<$<CONFIG:Debug>:DEBUG_MODE> $<$<CONFIG:Release>:RELEASE_MODE> PUBLIC working_directory="${CMAKE_BINARY_DIR}/" RENDERDOC)

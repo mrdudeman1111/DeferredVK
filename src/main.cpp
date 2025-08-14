@@ -96,6 +96,9 @@ int main()
         Wrappers::Subpass Lighting; // perform texturing and lighting on gBuffer using GGX lit model
         // geometric specular anti-aliasing
     */
+    
+    delete pMesh;
+    delete pWorldMesh;
 
     std::cout << "Good run\n";
     return 0;

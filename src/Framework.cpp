@@ -1,8 +1,11 @@
 #include "Framework.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
+#include <string>
+#include <vk_video/vulkan_video_codec_av1std.h>
 #include <vulkan/vulkan_core.h>
 
 Window* gWindow; // The Framework's global context.
@@ -89,7 +92,7 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
         InstExts.push_back(SdlExt[i]);
     }
     
-    InstExts.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    //InstExts.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
     #ifdef __APPLE__
         InstExts.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
@@ -138,8 +141,14 @@ bool InitWrapperFW(uint32_t Width, uint32_t Height)
 
     if(gContext->PhysDevice == VK_NULL_HANDLE) { gContext->PhysDevice = PhysDevices[0]; }
 
-    gContext->PhysDeviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    vkGetPhysicalDeviceFeatures2(gContext->PhysDevice, &gContext->PhysDeviceFeatures);
+    #ifdef RENDERDOC
+        vkGetPhysicalDeviceFeatures(gContext->PhysDevice, &gContext->PhysDeviceFeatures);
+    #else
+        gContext->PhysDeviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+
+        vkGetPhysicalDeviceFeatures2(gContext->PhysDevice, &gContext->PhysDeviceFeatures);
+    #endif
+
     /* retrieve and store local and host memory in globals */
     VkPhysicalDeviceMemoryProperties MemProps;
     vkGetPhysicalDeviceMemoryProperties(gContext->PhysDevice, &MemProps);
@@ -594,7 +603,7 @@ VkResult AllocBuff(Resources::Buffer& Buffer, VkMemoryRequirements& MemReq, std:
 {
     VkResult Ret = VK_SUCCESS;
     
-    bool bBound;
+    bool bBound = false;
     
     // bind to existing heap with enough space
         for(uint32_t i = 0; i < MemoryHeaps.size(); i++)
@@ -618,11 +627,11 @@ VkResult AllocBuff(Resources::Buffer& Buffer, VkMemoryRequirements& MemReq, std:
                 MemHeap.Available = MemHeap.Size - MemHeap.AllocTail;
             }
         }
-    // bind to new custom sized heap (the required allocation is too big for a standard heap
+    // bind to new custom sized heap (the required allocation is too big for a standard sized heap
         if(!bBound)
         {
-            MemoryHeaps.push_back({});
-            uint32_t EndIdx = MemoryHeaps.size()-1;
+            MemoryHeaps.push_back(MemoryHeap());
+            MemoryHeap& MemHeap = MemoryHeaps[MemoryHeaps.size()-1];
             
             if(MemReq.size > PAGE_SIZE)
             {
@@ -630,8 +639,6 @@ VkResult AllocBuff(Resources::Buffer& Buffer, VkMemoryRequirements& MemReq, std:
                 AllocInf.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
                 AllocInf.memoryTypeIndex = gContext->Host;
                 AllocInf.allocationSize = MemReq.size;
-                
-                MemoryHeap& MemHeap = MemoryHeaps[EndIdx];
                 
                 if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &MemHeap.Memory) != VK_SUCCESS)
                 {
@@ -650,35 +657,33 @@ VkResult AllocBuff(Resources::Buffer& Buffer, VkMemoryRequirements& MemReq, std:
                 
                 MemHeap.AllocTail += MemReq.size + (MemHeap.AllocTail % MemReq.alignment);
             }
-    // bind to new heap.
-        else
-        {
-            VkMemoryAllocateInfo AllocInf{};
-            AllocInf.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            AllocInf.memoryTypeIndex = gContext->Host;
-            AllocInf.allocationSize = PAGE_SIZE;
-            
-            MemoryHeap& MemHeap = MemoryHeaps[EndIdx];
-            
-            if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &MemHeap.Memory))
+        // bind to new heap.
+            else
             {
-                throw std::runtime_error("Failed to allocate a host heap for an allocation");
+                VkMemoryAllocateInfo AllocInf{};
+                AllocInf.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+                AllocInf.memoryTypeIndex = gContext->Host;
+                AllocInf.allocationSize = PAGE_SIZE;
+                
+                if(vkAllocateMemory(gContext->Device, &AllocInf, nullptr, &MemHeap.Memory))
+                {
+                    throw std::runtime_error("Failed to allocate a host heap for an allocation");
+                }
+                
+                MemHeap.Size = PAGE_SIZE;
+                MemHeap.AllocTail = 0;
+                MemHeap.Available = AllocInf.allocationSize - MemReq.size;
+                
+                Buffer.Alloc.Offset = 0;
+                Buffer.Alloc.Size = MemReq.size;
+                Buffer.Alloc.pMemory = &MemHeap.Memory;
+                
+                Ret = vkBindBufferMemory(gContext->Device, Buffer, MemHeap.Memory, 0);
+                
+                MemHeap.AllocTail += MemReq.size + (MemHeap.AllocTail % MemReq.alignment);
+                MemHeap.Available = MemHeap.Size - MemHeap.AllocTail;
             }
-            
-            MemHeap.Size = PAGE_SIZE;
-            MemHeap.AllocTail = 0;
-            MemHeap.Available = AllocInf.allocationSize - MemReq.size;
-            
-            Buffer.Alloc.Offset = 0;
-            Buffer.Alloc.Size = MemReq.size;
-            Buffer.Alloc.pMemory = &MemHeap.Memory;
-            
-            Ret = vkBindBufferMemory(gContext->Device, Buffer, MemHeap.Memory, 0);
-            
-            MemHeap.AllocTail += MemReq.size + (MemHeap.AllocTail % MemReq.alignment);
-            MemHeap.Available = MemHeap.Size - MemHeap.AllocTail;
         }
-    }
 
     return Ret;
 }
@@ -694,8 +699,6 @@ void Allocate(Resources::Buffer& Buffer, bool bVisible)
     vkGetBufferMemoryRequirements(gContext->Device, Buffer, &MemReq);
     
     Buffer.pData = nullptr;
-    
-    bool bBound = false;
     
     if(bVisible)
     {
@@ -824,9 +827,14 @@ VkResult CreateView(VkImageView& View, VkImage& Image, VkFormat Format, VkImageA
 
 void Map(Resources::Buffer* pBuffer)
 {
+    if(!pBuffer->Alloc.bHostVisible)
+    {
+        throw std::runtime_error("Failed to map buffer : The buffer is not host visible.\n");
+    }
     if(pBuffer->pData != nullptr)
     {
         std::cout << "Just tried to map an already mapped buffer.";
+        return;
     }
 
     for(uint32_t i = 0; i < gApplicationMemory->HostHeaps.size(); i++)
@@ -836,13 +844,20 @@ void Map(Resources::Buffer* pBuffer)
             if(gApplicationMemory->HostHeaps[i].pMapped != nullptr)
             {
                 pBuffer->pData = ((uint8_t*)gApplicationMemory->HostHeaps[i].pMapped)+pBuffer->Alloc.Offset;
+                break;
             }
             else
             {
                 vkMapMemory(gContext->Device, gApplicationMemory->HostHeaps[i].Memory, 0, gApplicationMemory->HostHeaps[i].Size, 0, &gApplicationMemory->HostHeaps[i].pMapped);
                 pBuffer->pData = ((uint8_t*)gApplicationMemory->HostHeaps[i].pMapped)+pBuffer->Alloc.Offset;
+                break;
             }
         }
+    }
+    
+    if(pBuffer->pData == nullptr)
+    {
+        throw std::runtime_error("failed to map buffer for some reason?");
     }
 
     return;

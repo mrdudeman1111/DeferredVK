@@ -1,3 +1,4 @@
+#include <stdexcept>
 #pragma onc/e
 
 #include "Wrappers.hpp"
@@ -85,7 +86,7 @@ class TransferAgent
 
             if(CreateBuffer(*pTransitBuffer, 16000000, VK_BUFFER_USAGE_TRANSFER_SRC_BIT) != VK_SUCCESS)
             {
-                std::cout << "Failed to create transit buffer.";
+                throw std::runtime_error("Failed to create transit buffer.");
             }
 
             Allocate(*pTransitBuffer, true);

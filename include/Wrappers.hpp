@@ -398,7 +398,13 @@ struct Context
 {
     VkInstance Instance;
     VkPhysicalDevice PhysDevice;
-    VkPhysicalDeviceFeatures2 PhysDeviceFeatures;
+
+    #ifdef RENDERDOC
+        VkPhysicalDeviceFeatures PhysDeviceFeatures;
+    #else
+        VkPhysicalDeviceFeatures2 PhysDeviceFeatures;
+    #endif
+
     VkDevice Device;
 
     uint32_t Local;

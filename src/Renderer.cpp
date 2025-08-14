@@ -407,6 +407,8 @@ SceneRenderer::~SceneRenderer()
 {
     DescriptorHeaps.clear();
 
+    delete SceneCam;
+
     delete pSceneDescriptorLayout;
     delete pSceneDescriptorSet;
 
@@ -694,7 +696,7 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
 
         pbrMesh* pTmp = new pbrMesh();
         Ret.push_back(pTmp);
-        Ret.back()->Name = Mesh.name;
+        pTmp->Name = Mesh.name;
 
         // process the mesh primitives' vertices.
         for(tinygltf::Primitive& Prim : Mesh.primitives)
@@ -718,44 +720,44 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
               throw std::runtime_error("Failed to extract UV data from mesh\n");
             }
 
-            Ret.back()->pVertices = new Vertex[tmpPos.size()/3];
-            Ret.back()->VertCount = tmpPos.size()/3;
+            pTmp->pVertices = new Vertex[tmpPos.size()/3];
+            pTmp->VertCount = tmpPos.size()/3;
 
             for(uint32_t i = 0; i < tmpPos.size()/3; i++)
             {
                 uint32_t Vec3Idx = i*3; // 3, 6, 9, 12
                 uint32_t Vec2Idx = i*2; // 2, 4, 6, 8
 
-                Ret.back()->pVertices[i].Position.x = tmpPos[ Vec3Idx ];
-                Ret.back()->pVertices[i].Position.y = tmpPos[ Vec3Idx+1 ];
-                Ret.back()->pVertices[i].Position.z = tmpPos[ Vec3Idx+2 ];
+                pTmp->pVertices[i].Position.x = tmpPos[ Vec3Idx ];
+                pTmp->pVertices[i].Position.y = tmpPos[ Vec3Idx+1 ];
+                pTmp->pVertices[i].Position.z = tmpPos[ Vec3Idx+2 ];
 
-                Ret.back()->pVertices[i].Normal.x = tmpNorm[ Vec3Idx ];
-                Ret.back()->pVertices[i].Normal.y = tmpNorm[ Vec3Idx+1 ];
-                Ret.back()->pVertices[i].Normal.z = tmpNorm[ Vec3Idx+2 ];
+                pTmp->pVertices[i].Normal.x = tmpNorm[ Vec3Idx ];
+                pTmp->pVertices[i].Normal.y = tmpNorm[ Vec3Idx+1 ];
+                pTmp->pVertices[i].Normal.z = tmpNorm[ Vec3Idx+2 ];
 
-                Ret.back()->pVertices[i].UV.x = tmpUV[ Vec2Idx ];
-                Ret.back()->pVertices[i].UV.y = tmpUV[ Vec2Idx+1 ];
+                pTmp->pVertices[i].UV.x = tmpUV[ Vec2Idx ];
+                pTmp->pVertices[i].UV.y = tmpUV[ Vec2Idx+1 ];
            }
 
            #ifdef DEBUG_MODE
-                Ret.back()->Vertices.resize(tmpPos.size()/3);
+                pTmp->Vertices.resize(tmpPos.size()/3);
                 
                 for(uint32_t i = 0; i < tmpPos.size()/3; i++)
                 {
                     uint32_t Vec3Idx = i*3; // 3, 6, 9, 12
                     uint32_t Vec2Idx = i*2; // 2, 4, 6, 8
 
-                    Ret.back()->Vertices[i].Position.x = tmpPos[ Vec3Idx ];
-                    Ret.back()->Vertices[i].Position.y = tmpPos[ Vec3Idx+1 ];
-                    Ret.back()->Vertices[i].Position.z = tmpPos[ Vec3Idx+2 ];
+                    pTmp->Vertices[i].Position.x = tmpPos[ Vec3Idx ];
+                    pTmp->Vertices[i].Position.y = tmpPos[ Vec3Idx+1 ];
+                    pTmp->Vertices[i].Position.z = tmpPos[ Vec3Idx+2 ];
                         
-                    Ret.back()->Vertices[i].Position.x = tmpNorm[ Vec3Idx ];
-                    Ret.back()->Vertices[i].Position.y = tmpNorm[ Vec3Idx+1 ];
-                    Ret.back()->Vertices[i].Position.z = tmpNorm[ Vec3Idx+2 ];
+                    pTmp->Vertices[i].Position.x = tmpNorm[ Vec3Idx ];
+                    pTmp->Vertices[i].Position.y = tmpNorm[ Vec3Idx+1 ];
+                    pTmp->Vertices[i].Position.z = tmpNorm[ Vec3Idx+2 ];
                     
-                    Ret.back()->Vertices[i].UV.x = tmpUV[ Vec2Idx ];
-                    Ret.back()->Vertices[i].UV.y = tmpUV[ Vec2Idx+1 ];
+                    pTmp->Vertices[i].UV.x = tmpUV[ Vec2Idx ];
+                    pTmp->Vertices[i].UV.y = tmpUV[ Vec2Idx+1 ];
                 }
             #endif
  
@@ -767,46 +769,49 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
               throw std::runtime_error("Failed to extract index data from mesh\n");
             }
 
-            Ret.back()->pIndices = new uint32_t[tmpIdx.size()];
-            Ret.back()->IndexCount = tmpIdx.size();
+            pTmp->pIndices = new uint32_t[tmpIdx.size()];
+            pTmp->IndexCount = tmpIdx.size();
 
             for(uint32_t i = 0; i < tmpIdx.size(); i++)
             {
-                Ret.back()->pIndices[i] = tmpIdx[i];
+                pTmp->pIndices[i] = tmpIdx[i];
             }
  
             #ifdef DEBUG_MODE
-                Ret.back()->Indices.resize(tmpIdx.size());
+                pTmp->Indices.resize(tmpIdx.size());
 
                 for(uint32_t i = 0; i < tmpIdx.size(); i++)
                 {
-                    Ret.back()->Indices[i] = tmpIdx[i];
+                    pTmp->Indices[i] = tmpIdx[i];
                 }
             #endif
         }
 
         // create the mesh buffer (for vertices and indices)
-        CreateBuffer(Ret.back()->MeshBuffer, (Ret.back()->VertCount * sizeof(Vertex)) + (Ret.back()->IndexCount * sizeof(uint32_t)), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+        CreateBuffer(pTmp->MeshBuffer, (pTmp->VertCount * sizeof(Vertex)) + (pTmp->IndexCount * sizeof(uint32_t)), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
         #ifdef DEBUG_MODE
-            Allocate(Ret.back()->MeshBuffer, true);
-            Map(&Ret.back()->MeshBuffer);
+            Allocate(pTmp->MeshBuffer, true);
+            Map(&pTmp->MeshBuffer);
 
-            GetTransferAgent()->Transfer(Ret.back()->Vertices.data(), Ret.back()->Vertices.size()*sizeof(Vertex), &Ret.back()->MeshBuffer, 0);
-            GetTransferAgent()->Transfer(Ret.back()->Indices.data(), Ret.back()->Indices.size()*sizeof(uint32_t), &Ret.back()->MeshBuffer, Ret.back()->Vertices.size()*sizeof(Vertex));
+            // GetTransferAgent()->Transfer(pTmp->Vertices.data(), pTmp->Vertices.size()*sizeof(Vertex), &pTmp->MeshBuffer, 0);
+            // GetTransferAgent()->Transfer(pTmp->Indices.data(), pTmp->Indices.size()*sizeof(uint32_t), &pTmp->MeshBuffer, pTmp->Vertices.size()*sizeof(Vertex));
+
+            GetTransferAgent()->Transfer(pTmp->pVertices, pTmp->VertCount*sizeof(Vertex), &pTmp->MeshBuffer, 0);
+            GetTransferAgent()->Transfer(pTmp->pIndices, pTmp->IndexCount*sizeof(uint32_t), &pTmp->MeshBuffer, pTmp->VertCount*sizeof(Vertex));
         #else
-            Allocate(Ret.back()->MeshBuffer, false);
+            Allocate(pTmp->MeshBuffer, false);
 
-            GetTransferAgent()->Transfer(Ret.back()->pVertices, Ret.back()->VertCount*sizeof(Vertex), &Ret.back()->MeshBuffer, 0);
-            GetTransferAgent()->Transfer(Ret.back()->pIndices, Ret.back()->IndexCount*sizeof(uint32_t), &Ret.back()->MeshBuffer, Ret.back()->VertCount*sizeof(Vertex));
+            GetTransferAgent()->Transfer(pTmp->pVertices, pTmp->VertCount*sizeof(Vertex), &pTmp->MeshBuffer, 0);
+            GetTransferAgent()->Transfer(pTmp->pIndices, pTmp->IndexCount*sizeof(uint32_t), &pTmp->MeshBuffer, pTmp->VertCount*sizeof(Vertex));
         #endif
 
-        pRenderer->AddMesh(Ret.back(), PipeName);
+        pRenderer->AddMesh(pTmp, PipeName);
 
         // Store the byte offset of the indices (needed during render.)
-        Ret.back()->IndexOffset = Ret.back()->VertCount*sizeof(Vertex);
+        pTmp->IndexOffset = pTmp->VertCount*sizeof(Vertex);
 
-        Ret.back()->Bake();
+        pTmp->Bake();
     }
     
     pbrMesh** pRet = new pbrMesh*[Ret.size()];
