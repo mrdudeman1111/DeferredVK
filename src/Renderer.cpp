@@ -26,7 +26,7 @@ bool ExtractVtxComp(tinygltf::Model& Model, tinygltf::Primitive& Prim, std::stri
     const tinygltf::BufferView& BuffView = Model.bufferViews[Accessor.bufferView];
     const tinygltf::Buffer& Buff = Model.buffers[BuffView.buffer];
 
-    uint32_t Count = Accessor.count;
+    // uint32_t Count = Accessor.count;
     const uint8_t* pData = &Buff.data[BuffView.byteOffset + Accessor.byteOffset];
     int Type = Accessor.type;
 
@@ -105,7 +105,7 @@ Camera::Camera() : WvpBuffer("Camera WVP Buffer")
 
     Map(&WvpBuffer);
 
-    MoveSpeed = 0.01f;
+    MoveSpeed = 0.03f;
 
     CamMat = glm::mat4(1.f);
 
@@ -179,9 +179,9 @@ void Camera::Rotate()
     PrevMouse.x = Input::GetInputMap()->MouseX;
     PrevMouse.y = Input::GetInputMap()->MouseY;
 
-    Rotation.x += MouseDelta.x/100.f;
+    Rotation.x += MouseDelta.x/70.f;
 
-    Rotation.y -= MouseDelta.y/100.f;
+    Rotation.y -= MouseDelta.y/70.f;
     Rotation.y = glm::clamp(Rotation.y, -90.f, 90.f);
 
     return;
@@ -251,8 +251,7 @@ void FrameBufferChain::Bake(RenderPass* pPass, VkCommandBuffer* pCmdBuffer)
 {
     VkResult Err;
 
-    Context* pCtx = GetContext();
-    FBCount = GetWindow()->SwapchainAttachments.size();
+    FBCount = (uint32_t)GetWindow()->SwapchainAttachments.size();
 
     FrameBuffers.resize(FBCount);
 
@@ -289,7 +288,7 @@ SceneRenderer::SceneRenderer() : StaticSceneBuffer("Static Scene Buffer"), Dynam
     SceneProfile.RenderOffset.extent = {1280, 720};
     SceneProfile.RenderOffset.offset = {0, 0};
 
-    SceneProfile.bStencilTesting = true;
+    SceneProfile.bStencilTesting = false;
     SceneProfile.bDepthTesting = true;
     SceneProfile.DepthRange = {0.f, 1.f};
     SceneProfile.DepthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
@@ -302,7 +301,6 @@ SceneRenderer::SceneRenderer() : StaticSceneBuffer("Static Scene Buffer"), Dynam
     // SceneProfile.AddBinding(1, sizeof(uint32_t), VK_VERTEX_INPUT_RATE_INSTANCE);
     // SceneProfile.AddAttribute(1, VK_FORMAT_R32_UINT, 3, 0); // Artificial Inst Idx
 
-    Context* pCtx = GetContext();
     GraphicsHeap.Bake(CommandType::eCmdGraphics);
     ComputeHeap.Bake(CommandType::eCmdCompute);
     TransferHeap.Bake(CommandType::eCmdTransfer);
@@ -452,7 +450,7 @@ Pipeline* SceneRenderer::CreatePipeline(std::string PipeName, uint32_t SubpassId
         int32_t i = 0;
 
         // if the pass stages array does not have a subpass at index SubpassIdx, We push a new null pass until we hit SubpassIdx, then we push the new pipelinestage into the specified pass
-        if((i = PassStages.size() - (SubpassIdx+1)) < 0)
+        if((i = (uint32_t)PassStages.size() - (SubpassIdx+1)) < 0)
         {
             #ifdef DEBUG_MODE
                 std::cout << "CreatePipeline() : The specified subpass index exceeds registered subpass array bounds. Creating needed stud passes\n";
@@ -529,7 +527,7 @@ void SceneRenderer::Bake()
 
         FrameChain.Bake(&ScenePass, *pCmdOpsBuffer);
 
-        uint32_t FrameCount = FrameChain.FrameBuffers.size();
+        uint32_t FrameCount = (uint32_t)FrameChain.FrameBuffers.size();
 
         for(uint32_t i = 0; i < GetWindow()->SwapchainImages.size(); i++)
         {
@@ -601,7 +599,7 @@ void SceneRenderer::Render()
         }
     }
 
-    GetTransferAgent()->Flush();
+    pTransfer->Flush();
 
     /**** TEMP : move sync to front of function ****/
     // pCmdRenderBuffer->cmdFence->Wait(); // wait for previous frame to render
@@ -721,7 +719,7 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
             }
 
             pTmp->pVertices = new Vertex[tmpPos.size()/3];
-            pTmp->VertCount = tmpPos.size()/3;
+            pTmp->VertCount = (uint32_t)tmpPos.size()/3;
 
             for(uint32_t i = 0; i < tmpPos.size()/3; i++)
             {
@@ -770,7 +768,7 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
             }
 
             pTmp->pIndices = new uint32_t[tmpIdx.size()];
-            pTmp->IndexCount = tmpIdx.size();
+            pTmp->IndexCount = (uint32_t)tmpIdx.size();
 
             for(uint32_t i = 0; i < tmpIdx.size(); i++)
             {
@@ -778,6 +776,7 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
             }
  
             #ifdef DEBUG_MODE
+            pTmp->Indices = tmpIdx;
                 pTmp->Indices.resize(tmpIdx.size());
 
                 for(uint32_t i = 0; i < tmpIdx.size(); i++)
@@ -790,6 +789,9 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
         // create the mesh buffer (for vertices and indices)
         CreateBuffer(pTmp->MeshBuffer, (pTmp->VertCount * sizeof(Vertex)) + (pTmp->IndexCount * sizeof(uint32_t)), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
+        // Store the byte offset of the indices (needed during render.)
+        pTmp->IndexOffset = pTmp->VertCount*sizeof(Vertex);
+
         #ifdef DEBUG_MODE
             Allocate(pTmp->MeshBuffer, true);
             Map(&pTmp->MeshBuffer);
@@ -797,8 +799,12 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
             // GetTransferAgent()->Transfer(pTmp->Vertices.data(), pTmp->Vertices.size()*sizeof(Vertex), &pTmp->MeshBuffer, 0);
             // GetTransferAgent()->Transfer(pTmp->Indices.data(), pTmp->Indices.size()*sizeof(uint32_t), &pTmp->MeshBuffer, pTmp->Vertices.size()*sizeof(Vertex));
 
-            GetTransferAgent()->Transfer(pTmp->pVertices, pTmp->VertCount*sizeof(Vertex), &pTmp->MeshBuffer, 0);
-            GetTransferAgent()->Transfer(pTmp->pIndices, pTmp->IndexCount*sizeof(uint32_t), &pTmp->MeshBuffer, pTmp->VertCount*sizeof(Vertex));
+            // works
+            // GetTransferAgent()->Transfer((uint8_t*)pTmp->pVertices, pTmp->VertCount*sizeof(Vertex), &pTmp->MeshBuffer, 0);
+            // GetTransferAgent()->Transfer((uint8_t*)pTmp->pIndices, pTmp->IndexCount*sizeof(uint32_t), &pTmp->MeshBuffer, pTmp->VertCount*sizeof(Vertex));
+        
+             GetTransferAgent()->Transfer(pTmp->pVertices, pTmp->VertCount*sizeof(Vertex), &pTmp->MeshBuffer, 0);
+             GetTransferAgent()->Transfer(pTmp->pIndices, pTmp->IndexCount*sizeof(uint32_t), &pTmp->MeshBuffer, pTmp->IndexOffset);
         #else
             Allocate(pTmp->MeshBuffer, false);
 
@@ -808,16 +814,13 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
 
         pRenderer->AddMesh(pTmp, PipeName);
 
-        // Store the byte offset of the indices (needed during render.)
-        pTmp->IndexOffset = pTmp->VertCount*sizeof(Vertex);
-
         pTmp->Bake();
     }
-    
-    pbrMesh** pRet = new pbrMesh*[Ret.size()];
+
+    pbrMesh** pRet = new pbrMesh*[Ret.size()]; // dynamically allocate return pointers.
 
     for(uint32_t i = 0; i < Ret.size(); i++) { pRet[i] = Ret[i]; }
 
-    MeshCount = Ret.size();
+    MeshCount = (uint32_t)Ret.size();
     return pRet;
 }

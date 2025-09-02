@@ -121,7 +121,7 @@ namespace Resources
 
         VkDescriptorSetLayoutCreateInfo LayCI{};
         LayCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        LayCI.bindingCount = Bindings.size();
+        LayCI.bindingCount = (uint32_t)Bindings.size();
         LayCI.pBindings = Bindings.data();
 
         Context* pCtx = GetContext();
@@ -173,7 +173,7 @@ namespace Resources
             WriteInfos[i].pBufferInfo = &WriteBuffers[i];
         }
 
-        vkUpdateDescriptorSets(GetContext()->Device, WriteInfos.size(), WriteInfos.data(), 0, nullptr);
+        vkUpdateDescriptorSets(GetContext()->Device, (uint32_t)WriteInfos.size(), WriteInfos.data(), 0, nullptr);
     }
 
     FrameBuffer::~FrameBuffer()
@@ -286,7 +286,7 @@ namespace Resources
 
         VkFramebufferCreateInfo FbCI{};
         FbCI.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        FbCI.attachmentCount = AttachmentViews.size();
+        FbCI.attachmentCount = (uint32_t)AttachmentViews.size();
         FbCI.pAttachments = AttachmentViews.data();
         FbCI.layers = 1;
         FbCI.width = AttachmentInfos[0].extent.width;
@@ -298,7 +298,7 @@ namespace Resources
             throw std::runtime_error("Failed to create framebuffer");
         }
 
-        vkCmdPipelineBarrier(*pCmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, MemoryBarriers.size(), MemoryBarriers.data());
+        vkCmdPipelineBarrier(*pCmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, (uint32_t)MemoryBarriers.size(), MemoryBarriers.data());
     }
 }
 
@@ -435,7 +435,8 @@ namespace Allocators
 
         if((Err = vkQueueSubmit(*pQueue, 1, &SubInf, *(pCmdBuffer->cmdFence->GetFence()))) != VK_SUCCESS)
         {
-            throw std::runtime_error("Failed to submit a command buffer with error " + Err);
+            printf("Error : %i", Err);
+            throw std::runtime_error("Failed to submit a command buffer with error ");
         }
     }
 
@@ -505,9 +506,9 @@ void RenderPass::Bake()
 
     VkRenderPassCreateInfo RpCI{};
     RpCI.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    RpCI.attachmentCount = Attachments.size();
+    RpCI.attachmentCount = (uint32_t)Attachments.size();
     RpCI.pAttachments = Attachments.data();
-    RpCI.subpassCount = Subpasses.size();
+    RpCI.subpassCount = (uint32_t)Subpasses.size();
     RpCI.pSubpasses = sPasses;
 
     if((Err = vkCreateRenderPass(pCtx->Device, &RpCI, nullptr, &rPass)) != VK_SUCCESS)
@@ -521,7 +522,7 @@ void RenderPass::Begin(Resources::CommandBuffer& cmdBuffer, Resources::FrameBuff
     VkRenderPassBeginInfo BeginInf{};
     BeginInf.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     BeginInf.renderPass = rPass;
-    BeginInf.clearValueCount = BufferClears.size();
+    BeginInf.clearValueCount = (uint32_t)BufferClears.size();
     BeginInf.pClearValues = BufferClears.data();
     BeginInf.renderArea.extent = GetWindow()->Resolution;
     BeginInf.renderArea.offset = {0, 0};
@@ -583,9 +584,9 @@ VkPipelineDepthStencilStateCreateInfo* PipelineProfile::GetDepthStencil()
 VkPipelineVertexInputStateCreateInfo* PipelineProfile::GetVtxInput()
 {
     VtxInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    VtxInput.vertexAttributeDescriptionCount = Attributes.size();
+    VtxInput.vertexAttributeDescriptionCount = (uint32_t)Attributes.size();
     VtxInput.pVertexAttributeDescriptions = Attributes.data();
-    VtxInput.vertexBindingDescriptionCount = Bindings.size();
+    VtxInput.vertexBindingDescriptionCount = (uint32_t)Bindings.size();
     VtxInput.pVertexBindingDescriptions = Bindings.data();
 
     return &VtxInput;
@@ -632,7 +633,7 @@ void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const 
     size_t VtxSize = cVtx.tellg();
     cVtx.seekg(0, cVtx.beg);
 
-    uint32_t VtxCodeSize = VtxSize/4;
+    uint32_t VtxCodeSize = (uint32_t)VtxSize/4;
     if(VtxCodeSize*VtxSize < 4) VtxCodeSize++; // ceil if needed.
 
     uint32_t* VtxCode = new uint32_t[VtxCodeSize];
@@ -648,6 +649,8 @@ void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const 
     {
         throw std::runtime_error("Failed to create shader module for pipeline");
     }
+    
+    delete[] VtxCode;
 
     std::string FragPath = shader_path;
     FragPath += Frag;
@@ -663,7 +666,7 @@ void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const 
     size_t FragSize = cFrag.tellg();
     cFrag.seekg(0, cFrag.beg);
 
-    uint32_t FragCodeSize = FragSize/4;
+    uint32_t FragCodeSize = (uint32_t)FragSize/sizeof(uint8_t);
     if(FragCodeSize*FragSize < 4) FragCodeSize++; // ceil if needed.
 
     uint32_t* FragCode = new uint32_t[FragCodeSize];
@@ -677,9 +680,12 @@ void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const 
 
     if((Err = vkCreateShaderModule(pCtx->Device, &FragCI, nullptr, &FragShader)) != VK_SUCCESS)
     {
+        printf("Error : %i", Err);
         throw std::runtime_error("Failed to create shader module for pipeline");
     }
-
+    
+    delete[] FragCode;
+    
     VkPipelineShaderStageCreateInfo ShaderStages[2] = {};
 
     ShaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -703,13 +709,13 @@ void Pipeline::Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const 
 
     VkPipelineColorBlendStateCreateInfo BlendState{};
     BlendState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    BlendState.attachmentCount = OutputBlending.size();
+    BlendState.attachmentCount = (uint32_t)OutputBlending.size();
     BlendState.pAttachments = OutputBlending.data();
     BlendState.logicOpEnable = VK_FALSE;
 
     VkPipelineLayoutCreateInfo LayCI{};
     LayCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    LayCI.setLayoutCount = Descriptors.size();
+    LayCI.setLayoutCount = (uint32_t)Descriptors.size();
     LayCI.pSetLayouts = Descriptors.data();
 
     if((Err = vkCreatePipelineLayout(pCtx->Device, &LayCI, nullptr, &PipeLayout)) != VK_SUCCESS)
@@ -773,7 +779,7 @@ void ComputePipeline::Bake(const char* Comp)
     size_t CompSize = cComp.tellg();
     cComp.seekg(0, cComp.beg);
 
-    uint32_t CompCodeSize = CompSize/4;
+    uint32_t CompCodeSize = (uint32_t)CompSize/4;
     if(CompCodeSize*CompSize < 4) CompCodeSize++; // ceil if needed.
 
     uint32_t* CompCode = new uint32_t[CompCodeSize];
@@ -798,7 +804,7 @@ void ComputePipeline::Bake(const char* Comp)
 
     VkPipelineLayoutCreateInfo LayCI{};
     LayCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    LayCI.setLayoutCount = Descriptors.size();
+    LayCI.setLayoutCount = (uint32_t)Descriptors.size();
     LayCI.pSetLayouts = Descriptors.data();
 
     if((Err = vkCreatePipelineLayout(pCtx->Device, &LayCI, nullptr, &PipeLayout)) != VK_SUCCESS)

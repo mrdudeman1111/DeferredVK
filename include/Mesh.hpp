@@ -9,12 +9,14 @@
 // seperate drawables and meshes.
 
 /*! Vertex structure containing all needed attributes */
-class Vertex
+struct Vertex
 {
 public:
+    Vertex() {};
+
     alignas(16) glm::vec3 Position; //! > Position of the vertex in 3D-space
     alignas(16) glm::vec3 Normal; //! > Facing normal of the vertex.
-    alignas(16) glm::vec2 UV; //! > UV coordinates of the vertex, for mapping to textures.
+    alignas(8) glm::vec2 UV; //! > UV coordinates of the vertex, for mapping to textures.
 };
 
 /*
@@ -103,11 +105,11 @@ public:
     uint32_t VertCount; //! > Number of vertices in pVertices.
 
     #ifdef DEBUG_MODE
-    std::vector<uint32_t> Indices; //! > Only exists in debug mode, vector of indices.
+    std::vector<uint32_t> Indices; //! > Only exists in debug mode, vector containing all mesh indices.
     #endif
 
     uint32_t* pIndices; //! > Raw pointer to the indices.
-    uint32_t IndexCount; //! > Number of indices in pIndices.
+    uint32_t IndexCount; //! > Number of indices in pIndices (and Indices in debug mode).
 
     /*! \brief Byte offset of the index array in the mesh buffer. */
     uint32_t IndexOffset; //! > The byte offset from the beginning of the mesh buffer at which our indices exist.

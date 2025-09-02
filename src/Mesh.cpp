@@ -1,5 +1,4 @@
 #include "Mesh.hpp"
-#include <vulkan/vulkan_core.h>
 
 Instanced::Instanced() : MeshPassBuffer("Instanced Mesh Buffer")
 {
@@ -19,7 +18,7 @@ void Instanced::Update()
 
     if(bInstanceDataDirty)
     {
-        uint32_t InstCount = Instances.size();
+        uint32_t InstCount = (uint32_t)Instances.size();
         size_t Offset = sizeof(VkDrawIndexedIndirectCommand)+sizeof(uint32_t);
         pAgent->Transfer(&InstCount, sizeof(InstCount), &MeshPassBuffer, Offset); // update the instance count for the mesh draw parameters
 
@@ -52,7 +51,7 @@ pbrMesh::pbrMesh() : Instanced(), MeshBuffer("Mesh Buffer")
 {
     if((VkDescriptorSetLayout)MeshLayout == VK_NULL_HANDLE)
     {
-        VkDescriptorSetLayoutBinding AlbedoImg;
+        VkDescriptorSetLayoutBinding AlbedoImg{};
             AlbedoImg.binding = 1;
             AlbedoImg.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
             AlbedoImg.descriptorCount = 1;
@@ -60,7 +59,7 @@ pbrMesh::pbrMesh() : Instanced(), MeshBuffer("Mesh Buffer")
 
         MeshLayout.AddBinding(AlbedoImg);
 
-        VkDescriptorSetLayoutBinding NormalImg;
+        VkDescriptorSetLayoutBinding NormalImg{};
             NormalImg.binding = 2;
             NormalImg.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
             NormalImg.descriptorCount = 1;
@@ -100,7 +99,7 @@ void pbrMesh::Bake()
     tmp.firstIndex = 0;
     tmp.vertexOffset = 0;
     tmp.firstInstance = 0;
-    
+
     GetTransferAgent()->Transfer(&tmp, sizeof(tmp), &MeshPassBuffer, 0);
 }
 
@@ -113,17 +112,17 @@ void pbrMesh::AddInstance(uint32_t InstIdx)
 void pbrMesh::GenDraws(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout)
 {
     vkCmdBindDescriptorSets(*pCmdBuff, VK_PIPELINE_BIND_POINT_COMPUTE, Layout, 1, 1, &pMeshPassSet->DescSet, 0, nullptr);
-    vkCmdDispatch(*pCmdBuff, 1+((Instances.size()-1)/64), 1, 1);
+    vkCmdDispatch(*pCmdBuff, 1+(((uint32_t)Instances.size()-1)/64), 1, 1);
 }
 
 void pbrMesh::DrawInstances(VkCommandBuffer* pCmdBuff, VkPipelineLayout Layout)
 {
-    vkCmdBindDescriptorSets(*pCmdBuff, VK_PIPELINE_BIND_POINT_GRAPHICS, Layout, 1, 1, &pMeshPassSet->DescSet, 0, nullptr);
     VkDeviceSize Offset = 0;
+    vkCmdBindDescriptorSets(*pCmdBuff, VK_PIPELINE_BIND_POINT_GRAPHICS, Layout, 1, 1, &pMeshPassSet->DescSet, 0, nullptr);
     vkCmdBindVertexBuffers(*pCmdBuff, 0, 1, MeshBuffer, &Offset);
     vkCmdBindIndexBuffer(*pCmdBuff, MeshBuffer, IndexOffset, VK_INDEX_TYPE_UINT32);
 
-    vkCmdDrawIndexedIndirect(*pCmdBuff, MeshPassBuffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+    vkCmdDrawIndexedIndirect(*pCmdBuff, MeshPassBuffer, 0, (uint32_t)Instances.size(), sizeof(VkDrawIndexedIndirectCommand));
 
     return;
 }

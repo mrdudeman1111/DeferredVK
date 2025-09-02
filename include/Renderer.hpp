@@ -16,10 +16,17 @@
 */
 struct PipeStage
 {
-    // Call to update all owned meshes. (called every frame to reset draw information, this function must be called before UpdateDraws())
+    /*! \brief Call to update all owned meshes. (called every frame to reset draw information, this function must be called before UpdateDraws())
+    */
     void Update();
 
-    // Call to regenerate draw lists (called every frame so that culling can be performed).
+    /*! \brief Call to regenerate draw lists (called every frame so that culling can be performed).
+     
+        Exclusively for internal use by the renderer. The compute layout should only point to the 
+     
+        @param pCmdBuffer A pointer to the Resources::CommandBuffer object to hold this command.
+        @param ComputeLayout The pipeline layout of the compute pipeline to use.
+    */
     void UpdateDraws(Resources::CommandBuffer* pCmdBuffer, VkPipelineLayout ComputeLayout);
 
     // Call to Draw all owned meshes with this pipeline.
@@ -225,7 +232,7 @@ private:
     /*****************************************/
     std::vector<PassStage> PassStages; //! > Pipeline stages sorted by subpass.
 
-    ComputePipeline DrawPipeline;
+    ComputePipeline DrawPipeline; //! > The pipeline used by the renderer to perform culling and generate indirect draw commands
 
     Resources::CommandBuffer* pCmdOpsBuffer = nullptr; //! > General purpose spare command buffer.
     Resources::CommandBuffer* pCmdComputeBuffer = nullptr; //! > Compute render buffer (mostly used for command generation).

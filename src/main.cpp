@@ -3,13 +3,15 @@
 
 #include "Renderer.hpp"
 
+// TODO : implement OpenImageIO and MaterialX
+
+// Dbg Notes : Indices are good until last ~4 indices. Probably Issue with Map() or Allocate().
+
 SceneRenderer Scene;
 AssetManager AssetMan;
 
 int main()
 {
-    Context* pCtx = GetContext();
-    
     #ifdef DEBUG_MODE
         std::cout << "Debug mode enabled\n";
     #endif
@@ -50,8 +52,11 @@ int main()
 
     uint32_t tMeshCount;
     pbrMesh** pMesh = AssetMan.CreateMesh(working_directory"tMesh.glb", "Forward Pipeline", tMeshCount);
+    printf("Loaded %d meshes from tMesh.glb", tMeshCount);
+    
     uint32_t tWorldCount;
     pbrMesh** pWorldMesh = AssetMan.CreateMesh(working_directory"tPlane.glb", "Forward Pipeline", tWorldCount);
+    printf("Loaded %d meshes from tPlane.glb\n", tWorldCount);
 
     Drawable* pMeshInstance = Scene.CreateDrawable(pMesh[0], true);
     Drawable* pWorldInstance = Scene.CreateDrawable(pWorldMesh[0], true);
@@ -59,7 +64,7 @@ int main()
     pMeshInstance->SetTransform(glm::vec3(0.f, 1.f, 0.f), glm::vec3(0.f), glm::vec3(1.f));
     pMeshInstance->UpdateTransform();
 
-    pWorldInstance->SetTransform(glm::vec3(0.f), glm::vec3(0.f), glm::vec3(1000.f));
+    pWorldInstance->SetTransform(glm::vec3(1.f, 0.f, 1.f), glm::vec3(0.f), glm::vec3(1.f));
     pWorldInstance->UpdateTransform();
 
     while(Input::PollInputs())
@@ -67,21 +72,21 @@ int main()
         Scene.Render();
         // wait for current render to update resources??
         Scene.Update();
-
+        
         //FrameIdx = GetWindow()->GetNextFrame(SceneSync.FrameSem);
-
+        
         /*
-        RenderBuff.Start();
-            ForwardRenderPass.Begin(RenderBuff, FrameBuffers[FrameIdx]);
-                pForwardPipe->Bind(RenderBuff);
-
-            ForwardRenderPass.End(RenderBuff);
-        RenderBuff.Stop();
-
-        GraphicsPool.Submit(&RenderBuff, nullptr, 1, &SceneSync.RenderSem);
-
-        GetWindow()->PresentFrame(FrameIdx, &SceneSync.RenderSem);
-        */
+         RenderBuff.Start();
+         ForwardRenderPass.Begin(RenderBuff, FrameBuffers[FrameIdx]);
+         pForwardPipe->Bind(RenderBuff);
+         
+         ForwardRenderPass.End(RenderBuff);
+         RenderBuff.Stop();
+         
+         GraphicsPool.Submit(&RenderBuff, nullptr, 1, &SceneSync.RenderSem);
+         
+         GetWindow()->PresentFrame(FrameIdx, &SceneSync.RenderSem);
+         */
     }
 
     /*

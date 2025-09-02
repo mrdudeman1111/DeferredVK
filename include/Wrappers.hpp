@@ -142,7 +142,7 @@ namespace Resources
         operator VkDescriptorSetLayout() { return Layout; }
         operator VkDescriptorSetLayout*() { return &Layout; }
 
-        VkDescriptorSetLayoutBinding* GetBindings(uint32_t& Count) { Count = Bindings.size(); return Bindings.data(); }
+        VkDescriptorSetLayoutBinding* GetBindings(uint32_t& Count) { Count = (uint32_t)Bindings.size(); return Bindings.data(); }
 
     private:
         VkDescriptorSetLayout Layout = VK_NULL_HANDLE;
@@ -244,11 +244,11 @@ struct Subpass
     inline void AddDepthAttachmment(uint32_t AttIdx, VkImageLayout ImgLayout) { DepthAttachment = {AttIdx, ImgLayout}; }
     inline void AddPreserveAttachment(uint32_t AttIdx) { PreserveAttachments.push_back(AttIdx); }
 
-    VkAttachmentReference* GetColorAttachments(uint32_t& Count) { Count = ColorAttachments.size(); return ColorAttachments.data(); }
-    VkAttachmentReference* GetInputAttachments(uint32_t& Count) { Count = InputAttachments.size(); return InputAttachments.data(); }
-    VkAttachmentReference* GetResolveAttachments(uint32_t& Count) { Count = ResolveAttachments.size(); return ResolveAttachments.data(); }
+    VkAttachmentReference* GetColorAttachments(uint32_t& Count) { Count = (uint32_t)ColorAttachments.size(); return ColorAttachments.data(); }
+    VkAttachmentReference* GetInputAttachments(uint32_t& Count) { Count = (uint32_t)InputAttachments.size(); return InputAttachments.data(); }
+    VkAttachmentReference* GetResolveAttachments(uint32_t& Count) { Count = (uint32_t)ResolveAttachments.size(); return ResolveAttachments.data(); }
     VkAttachmentReference* GetDepthAttachment() { return &DepthAttachment; }
-    uint32_t* GetPreserveAttachments(uint32_t& Count) { Count = PreserveAttachments.size(); return PreserveAttachments.data(); }
+    uint32_t* GetPreserveAttachments(uint32_t& Count) { Count = (uint32_t)PreserveAttachments.size(); return PreserveAttachments.data(); }
 
 private:
     std::vector<VkAttachmentReference> ColorAttachments;
@@ -289,6 +289,9 @@ struct VertDesc
 class PipelineProfile
 {
 public:
+    PipelineProfile() : Topo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST), MsaaSamples(VK_SAMPLE_COUNT_1_BIT), RenderSize({0, 0}), RenderOffset({0, 0}), DepthRange({0.f, 0.f}), bStencilTesting(true), bDepthTesting(true), DepthCompareOp(VK_COMPARE_OP_LESS)
+    {}
+    
     VkPrimitiveTopology Topo;
 
     VkSampleCountFlagBits MsaaSamples;
@@ -306,7 +309,7 @@ public:
         VkVertexInputBindingDescription tmp{};
         tmp.binding = Binding;
         tmp.inputRate = InRate;
-        tmp.stride = Stride;
+        tmp.stride = (uint32_t)Stride;
 
         Bindings.push_back(tmp);
     }
@@ -317,7 +320,7 @@ public:
         tmp.location = Location;
         tmp.binding = Binding;
         tmp.format = Format;
-        tmp.offset = Offset;
+        tmp.offset = (uint32_t)Offset;
 
         Attributes.push_back(tmp);
     }
@@ -356,7 +359,7 @@ public:
     inline void SetProfile(PipelineProfile PipeProf) { Profile = PipeProf; }
 
     void Bake(RenderPass* rPass, uint32_t Subpass, const char* Vtx, const char* Frag);
-    uint32_t AddDescriptor(Resources::DescriptorLayout* pDesc) { Descriptors.push_back(*pDesc); return Descriptors.size()-1; }
+    uint32_t AddDescriptor(Resources::DescriptorLayout* pDesc) { Descriptors.push_back(*pDesc); return (uint32_t)Descriptors.size()-1; }
 
     VkPipelineLayout PipeLayout;
 
