@@ -8,6 +8,10 @@ layout(location = 0) in vec3 Position;
 layout(location = 1) in vec3 Normal;
 layout(location = 2) in vec2 UV;
 
+layout(location = 0) out vec3 oPos;
+layout(location = 1) out vec3 oNorm;
+layout(location = 2) out vec2 oUV;
+
 struct VkDrawCommand
 {
     uint IndexCount;
@@ -47,8 +51,13 @@ layout(std430, set = 1, binding = 0) buffer readonly Draw_t
 void main()
 {
     // Issue here. the MeshInstanceIndices is supposed to be mapped to scene buffer indices. But we're skipping that step, pass the instanced::Instances, then use it to map MeshInstanceIndices into scene buffer indices.
-    uint TransformIdx = Mesh.InstanceSceneIndices[gl_InstanceIndex];
-    mat4 MeshTransform = DynSceneBuffer.Transforms[TransformIdx];
-    gl_Position = Camera.Proj * Camera.View * MeshTransform * vec4(Position, 1.0f);
+    // uint TransformIdx = Mesh.InstanceSceneIndices[gl_InstanceIndex];
+    uint TransformIdx = Mesh.VisibleInstances[gl_InstanceIndex];
+    gl_Position = Camera.Proj * Camera.View * DynSceneBuffer.Transforms[TransformIdx]* vec4(Position, 1.0f);
+
+    oPos = Position;
+    // oNorm = normalize(transpose(inverse(mat3(DynSceneBuffer.Transforms[TransformIdx]*Camera.View)))*Normal);
+    oNorm = Normal;
+    oUV = UV;
     //outUV = inUV;
 }

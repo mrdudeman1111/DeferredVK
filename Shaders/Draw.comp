@@ -84,6 +84,7 @@ void main()
         Mesh.VisibleInstances[id] = 9999999;
         return;
     }
+    
 
     Mesh.VisibleInstances[Mesh.Cmd.InstanceCount] = Mesh.InstanceSceneIndices[id];
     Mesh.Cmd.InstanceCount = Mesh.Cmd.InstanceCount+1;

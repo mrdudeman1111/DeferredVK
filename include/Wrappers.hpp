@@ -1,4 +1,5 @@
 #pragma once
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -74,6 +75,8 @@ namespace Resources
         ~Image();
 
         VkImage Img;
+        VkImageView View;
+        VkImageLayout Layout;
 
         VkFormat Format;
         VkExtent2D Resolution;
@@ -155,7 +158,6 @@ namespace Resources
         VkDescriptorType DescType;
         uint32_t DescCount;
         uint32_t DescIndex;
-
         uint32_t Binding;
 
         Buffer* pBuff;

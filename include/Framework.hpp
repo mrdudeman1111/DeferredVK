@@ -34,6 +34,11 @@ Window* GetWindow();
     */
     void Allocate(Resources::Image& Image, bool bVisible = true);
 
+    /*! \brief Free an allocation
+        @param Alloc The allocation to free.
+     */
+    void Free(Resources::Allocation& Alloc);
+
     /*! \brief Create buffer
         @param Buffer The buffer object to output to.
         @param Size The size of the buffer object to create.
@@ -50,12 +55,6 @@ Window* GetWindow();
     */
     VkResult CreateImage(Resources::Image& Image, VkFormat Format, VkExtent2D Size, VkImageUsageFlags Usage, VkSampleCountFlagBits SampleCount = VK_SAMPLE_COUNT_1_BIT);
 
-    /*! \brief Create View
-        @param View The Image view to output to.
-        @param Image The image the output view wraps.
-        @param Format The format of the view
-        @param Aspect The subresource aspect
-    */
     VkResult CreateView(VkImageView& View, VkImage& Image, VkFormat Format, VkImageAspectFlagBits Aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 
     // virtual void CreateTexture(Resources::Image& Texture, VkFormat Format, VkExtent2D Size) = 0;

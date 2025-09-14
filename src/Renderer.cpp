@@ -5,12 +5,15 @@
 #include <algorithm>
 #include <glm/common.hpp>
 #include <glm/ext/scalar_constants.hpp>
+
 #include <vulkan/vulkan_core.h>
 
 #define TINYGLTF_IMPLEMENTATION
 #define TINYGLTF_NO_STB_IMAGE
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 #include "tgltf/tiny_gltf.h"
+
+#include "OpenImageIO/imageio.h"
 
 tinygltf::TinyGLTF MeshLoader;
 
@@ -99,7 +102,7 @@ bool ExtractIdx(tinygltf::Model& Model, tinygltf::Primitive& Prim, std::vector<u
 
 Camera::Camera() : WvpBuffer("Camera WVP Buffer")
 {
-    CreateBuffer(WvpBuffer, (sizeof(glm::mat4)*3)+(sizeof(glm::vec4)*6), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    CreateBuffer(WvpBuffer, (sizeof(glm::mat4)*4)+(sizeof(glm::vec4)*6), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
     Allocate(WvpBuffer, true);
 
@@ -114,7 +117,7 @@ Camera::Camera() : WvpBuffer("Camera WVP Buffer")
 
     pWvp = (glm::mat4*)WvpBuffer.pData;
     pWvp[0] = glm::mat4(1.f);
-    pWvp[2] = glm::perspective(45.f, 16.f/9.f, 0.f, 9999.f);
+    pWvp[2] = glm::perspective(45.f, 16.f/9.f, 0.0001f, 9999.f);
     pWvp[2][1][1] *= -1.f;
 }
 
@@ -273,7 +276,7 @@ void FrameBufferChain::Bake(RenderPass* pPass, VkCommandBuffer* pCmdBuffer)
     return;
 }
 
-SceneRenderer::SceneRenderer() : StaticSceneBuffer("Static Scene Buffer"), DynamicSceneBuffer("StaticSceneBuffer")
+SceneRenderer::SceneRenderer() : StaticSceneBuffer("Static Scene Buffer"), DynamicSceneBuffer("Dynamic Scene Buffer"), SceneLightBuffer("Scene Light Buffer")
 {
     VkResult Err;
 
@@ -288,10 +291,10 @@ SceneRenderer::SceneRenderer() : StaticSceneBuffer("Static Scene Buffer"), Dynam
     SceneProfile.RenderOffset.extent = {1280, 720};
     SceneProfile.RenderOffset.offset = {0, 0};
 
-    SceneProfile.bStencilTesting = false;
+    SceneProfile.bStencilTesting = true;
     SceneProfile.bDepthTesting = true;
     SceneProfile.DepthRange = {0.f, 1.f};
-    SceneProfile.DepthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    SceneProfile.DepthCompareOp = VK_COMPARE_OP_LESS;
 
     SceneProfile.AddBinding(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
     SceneProfile.AddAttribute(0, VK_FORMAT_R32G32B32_SFLOAT, 0, offsetof(Vertex, Position));   // Position
@@ -324,20 +327,24 @@ SceneRenderer::SceneRenderer() : StaticSceneBuffer("Static Scene Buffer"), Dynam
     // Instanced::pMeshPassLayout->AddBinding(InstanceArrBinding);
     DescriptorHeaps[*Instanced::pMeshPassLayout].Bake(Instanced::pMeshPassLayout, 1000);
 
-    if((Err = CreateBuffer(StaticSceneBuffer, sizeof(glm::mat4)*MAX_STATIC_SCENE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)) != VK_SUCCESS) throw std::runtime_error("Failed to create static scene buffer.");
+    if((Err = CreateBuffer(StaticSceneBuffer, sizeof(glm::mat4)*MAX_STATIC_SCENE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT)) != VK_SUCCESS) throw std::runtime_error("Failed to create static scene buffer.");
     Allocate(StaticSceneBuffer, false);
 
-    Err = CreateBuffer(DynamicSceneBuffer, sizeof(glm::mat4)*MAX_DYNAMIC_SCENE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    if((Err = CreateBuffer(DynamicSceneBuffer, sizeof(glm::mat4)*MAX_DYNAMIC_SCENE_SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)) != VK_SUCCESS) throw std::runtime_error("Failed to create dynamic scene buffer.");
     Allocate(DynamicSceneBuffer, true);
     Map(&DynamicSceneBuffer);
+    
+    if((Err = CreateBuffer(SceneLightBuffer, ((sizeof(glm::vec4)+sizeof(glm::vec4)+sizeof(float))*10000)+sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT)) != VK_SUCCESS) throw std::runtime_error("Failed to create scene light buffer");
+    Allocate(SceneLightBuffer, false);
 
     pSceneDescriptorLayout = new Resources::DescriptorLayout();
 
-    VkDescriptorSetLayoutBinding SceneBindings[3] = {};
+    VkDescriptorSetLayoutBinding SceneBindings[4] = {};
+    
     SceneBindings[0].binding = 0;
     SceneBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     SceneBindings[0].descriptorCount = 1;
-    SceneBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT;
+    SceneBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
     SceneBindings[1].binding = 1;
     SceneBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -348,6 +355,11 @@ SceneRenderer::SceneRenderer() : StaticSceneBuffer("Static Scene Buffer"), Dynam
     SceneBindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     SceneBindings[2].descriptorCount = 1;
     SceneBindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT;
+    
+    SceneBindings[3].binding = 3;
+    SceneBindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    SceneBindings[3].descriptorCount = 1;
+    SceneBindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     /*
     SceneBindings[3].binding = 3;
@@ -359,12 +371,12 @@ SceneRenderer::SceneRenderer() : StaticSceneBuffer("Static Scene Buffer"), Dynam
     pSceneDescriptorLayout->AddBinding(SceneBindings[0]);
     pSceneDescriptorLayout->AddBinding(SceneBindings[1]);
     pSceneDescriptorLayout->AddBinding(SceneBindings[2]);
-    //pSceneDescriptorLayout->AddBinding(SceneBindings[3]);
+    pSceneDescriptorLayout->AddBinding(SceneBindings[3]);
 
     DescriptorHeaps[*pSceneDescriptorLayout].Bake(pSceneDescriptorLayout, 2);
     pSceneDescriptorSet = DescriptorHeaps[*pSceneDescriptorLayout].CreateSet();
 
-    Resources::DescUpdate SceneUpdates[3] = {};
+    Resources::DescUpdate SceneUpdates[4] = {};
 
     SceneUpdates[0].DescType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     SceneUpdates[0].DescCount = 1;
@@ -393,12 +405,25 @@ SceneRenderer::SceneRenderer() : StaticSceneBuffer("Static Scene Buffer"), Dynam
     SceneUpdates[2].Range = DynamicSceneBuffer.Alloc.Size;
     SceneUpdates[2].Offset = 0;
 
-    pSceneDescriptorSet->Update(SceneUpdates, 3);
+    SceneUpdates[3].DescType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    SceneUpdates[3].Binding = 3;
+    SceneUpdates[3].DescCount = 1;
+    SceneUpdates[3].DescIndex = 0;
+
+    SceneUpdates[3].pBuff = &SceneLightBuffer;
+    SceneUpdates[3].Range = ((sizeof(glm::vec4)+sizeof(glm::vec4))*10000) + sizeof(uint32_t);
+    SceneUpdates[3].Offset = 0;
+
+    pSceneDescriptorSet->Update(SceneUpdates, 4);
 
     DrawPipeline.AddDescriptor(pSceneDescriptorLayout);
     DrawPipeline.AddDescriptor(Instanced::pMeshPassLayout);
 
     DrawPipeline.Bake("Draw.spv");
+
+    VkClearValue ColorClear; ColorClear.color.float32[0] = 0.f; ColorClear.color.float32[1] = 0.f; ColorClear.color.float32[2] = 0.f; ColorClear.color.float32[3] = 0.f;
+
+    AddRenderAttachment(GetWindow()->SurfFormat.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, &ColorClear, VK_SAMPLE_COUNT_1_BIT);
 }
 
 SceneRenderer::~SceneRenderer()
@@ -505,6 +530,23 @@ Drawable* SceneRenderer::CreateDrawable(pbrMesh* Mesh, bool bDynamic)
     Mesh->AddInstance(pRet->ObjIdx);
 
     return pRet;
+}
+
+PointLight SceneRenderer::CreatePointLight(glm::vec3 Pos, glm::vec3 LightCol)
+{
+    struct {
+        glm::vec4 Position;
+        glm::vec4 Color;
+    } LightMem;
+
+    LightMem.Position = glm::vec4(Pos, 1.f);
+    LightMem.Color = glm::vec4(LightCol, 1.f);
+
+    GetTransferAgent()->Transfer(&LightMem, sizeof(LightMem), &SceneLightBuffer, sizeof(uint32_t)+(sizeof(LightMem)*LightIter)); // update the light at the LightIter position
+    LightIter++;
+    GetTransferAgent()->Transfer(&LightIter, sizeof(uint32_t), &SceneLightBuffer, 0); // update light count
+
+    return LightIter-1;
 }
 
 void SceneRenderer::AddPass(Subpass* pSubpass)
@@ -665,7 +707,6 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
     std::string Err, Warn;
 
     // load the mesh file
-    // if(!MeshLoader.LoadBinaryFromFile(&tmpModel, &Err, &Warn, Path))
     if(!MeshLoader.LoadBinaryFromFile(&tmpModel, &Err, &Warn, Path))
     {
         throw std::runtime_error("Failed to load mesh file " + Path);
@@ -738,28 +779,6 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
                 pTmp->pVertices[i].UV.y = tmpUV[ Vec2Idx+1 ];
            }
 
-           #ifdef DEBUG_MODE
-                pTmp->Vertices.resize(tmpPos.size()/3);
-                
-                for(uint32_t i = 0; i < tmpPos.size()/3; i++)
-                {
-                    uint32_t Vec3Idx = i*3; // 3, 6, 9, 12
-                    uint32_t Vec2Idx = i*2; // 2, 4, 6, 8
-
-                    pTmp->Vertices[i].Position.x = tmpPos[ Vec3Idx ];
-                    pTmp->Vertices[i].Position.y = tmpPos[ Vec3Idx+1 ];
-                    pTmp->Vertices[i].Position.z = tmpPos[ Vec3Idx+2 ];
-                        
-                    pTmp->Vertices[i].Position.x = tmpNorm[ Vec3Idx ];
-                    pTmp->Vertices[i].Position.y = tmpNorm[ Vec3Idx+1 ];
-                    pTmp->Vertices[i].Position.z = tmpNorm[ Vec3Idx+2 ];
-                    
-                    pTmp->Vertices[i].UV.x = tmpUV[ Vec2Idx ];
-                    pTmp->Vertices[i].UV.y = tmpUV[ Vec2Idx+1 ];
-                }
-            #endif
- 
-
             std::vector<uint32_t> tmpIdx;
 
             if(!ExtractIdx(tmpModel, Prim, tmpIdx))
@@ -774,16 +793,11 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
             {
                 pTmp->pIndices[i] = tmpIdx[i];
             }
- 
-            #ifdef DEBUG_MODE
-            pTmp->Indices = tmpIdx;
-                pTmp->Indices.resize(tmpIdx.size());
 
-                for(uint32_t i = 0; i < tmpIdx.size(); i++)
-                {
-                    pTmp->Indices[i] = tmpIdx[i];
-                }
-            #endif
+            tinygltf::Material Mat;
+
+             // tmpModel.materials[Prim.material].normalTexture.;
+             // TODO : Implement material loading from gltf files.
         }
 
         // create the mesh buffer (for vertices and indices)
@@ -823,4 +837,143 @@ pbrMesh** AssetManager::CreateMesh(std::string Path, std::string PipeName, uint3
 
     MeshCount = (uint32_t)Ret.size();
     return pRet;
+}
+
+Resources::Image* AssetManager::LoadImage(std::string ImageFile, VkSampleCountFlagBits SampleCount)
+{
+    Resources::Image* Ret = new Resources::Image();
+
+    auto ImgPtr = OIIO::ImageInput::open(ImageFile);
+
+    if(!ImgPtr)
+    {
+        printf("Failed to load Texture %s\n", ImageFile.c_str());
+        return;
+    }
+
+    const OIIO::ImageSpec& ImgSpec = ImgPtr->spec();
+
+    uint32_t Width, Height;
+    Width = ImgSpec.width;
+    Height = ImgSpec.height;
+
+    int ChannelCount = ImgSpec.nchannels;
+
+    uint8_t* pImageData = new uint8_t[Width * Height * ChannelCount];
+
+    ImgPtr->read_image(0, 0, 0, ChannelCount, OIIO::TypeDesc::UINT8, &pImageData[0]);
+
+    VkFormat Frmt;
+    bool bFrmtGood = false;
+
+    if(ImgSpec.format == OIIO::TypeDesc::UINT8)
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R8_UINT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R8G8_UINT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R8G8B8_UINT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R8G8B8A8_UINT;
+
+        bFrmtGood = true;
+    }
+    else if(ImgSpec.format == OIIO::TypeDesc::UINT16)
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R16_UINT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R16G16_UINT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R16G16B16_UINT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R16G16B16A16_UINT;
+
+        bFrmtGood = true;
+    }
+    else if(ImgSpec.format == OIIO::TypeDesc::UINT32)
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R32_UINT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R32G32_UINT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R32G32B32_UINT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R32G32B32A32_UINT;
+
+        bFrmtGood = true;
+    }
+    else if(ImgSpec.format == OIIO::TypeDesc::UINT64)
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R64_UINT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R64G64_UINT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R64G64B64_UINT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R64G64B64A64_UINT;
+
+        bFrmtGood = true;
+    }
+    else if(ImgSpec.format == OIIO::TypeDesc::UINT) // uint32_t
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R32_UINT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R32G32_UINT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R32G32B32_UINT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R32G32B32A32_UINT;
+
+        bFrmtGood = true;
+    }
+    else if(ImgSpec.format == OIIO::TypeDesc::INT8)
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R8_SINT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R8G8_SINT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R8G8B8_SINT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R8G8B8A8_SINT;
+
+        bFrmtGood = true;
+    }
+    else if(ImgSpec.format == OIIO::TypeDesc::INT16)
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R16_SINT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R16G16_SINT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R16G16B16_SINT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R16G16B16A16_SINT;
+
+        bFrmtGood = true;
+    }
+    else if(ImgSpec.format == OIIO::TypeDesc::INT32)
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R32_SINT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R32G32_SINT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R32G32B32_SINT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R32G32B32A32_SINT;
+
+        bFrmtGood = true;
+    }
+    else if(ImgSpec.format == OIIO::TypeDesc::INT64)
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R64_SINT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R64G64_SINT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R64G64B64_SINT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R64G64B64A64_SINT;
+
+        bFrmtGood = true;
+    }
+    else if(ImgSpec.format == OIIO::TypeDesc::FLOAT)
+    {
+        if(ChannelCount == 1) Frmt = VK_FORMAT_R32_SFLOAT;
+        if(ChannelCount == 2) Frmt = VK_FORMAT_R32G32_SFLOAT;
+        if(ChannelCount == 3) Frmt = VK_FORMAT_R32G32B32_SFLOAT;
+        if(ChannelCount == 4) Frmt = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+        bFrmtGood = true;
+    }
+    
+    if(!Frmt)
+    {
+        throw std::runtime_error("Failed to ascertain\n");
+    }
+
+    CreateImage(*Ret, Frmt, {Width, Height}, SampleCount);
+    Allocate(*Ret, false);
+
+    VkImageSubresourceLayers Layers;
+    Layers.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    Layers.layerCount = 1;
+    Layers.baseArrayLayer = 0;
+    Layers.mipLevel = 0;
+
+    GetTransferAgent()->Transfer(pImageData, sizeof(uint8_t)*Height*Width*ChannelCount, Ret, {Width, Height, 0}, {0, 0, 0}, Layers, VK_IMAGE_LAYOUT_UNDEFINED);
+
+    delete[] pImageData;
+
+    return Ret;
 }

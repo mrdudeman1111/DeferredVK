@@ -47,26 +47,8 @@ void Instanced::Update()
     return;
 }
 
-pbrMesh::pbrMesh() : Instanced(), MeshBuffer("Mesh Buffer")
+pbrMesh::pbrMesh() : Mesh()
 {
-    if((VkDescriptorSetLayout)MeshLayout == VK_NULL_HANDLE)
-    {
-        VkDescriptorSetLayoutBinding AlbedoImg{};
-            AlbedoImg.binding = 1;
-            AlbedoImg.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            AlbedoImg.descriptorCount = 1;
-            AlbedoImg.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-        MeshLayout.AddBinding(AlbedoImg);
-
-        VkDescriptorSetLayoutBinding NormalImg{};
-            NormalImg.binding = 2;
-            NormalImg.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            NormalImg.descriptorCount = 1;
-            NormalImg.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-        MeshLayout.AddBinding(NormalImg);
-    }
 }
 
 void pbrMesh::Bake()

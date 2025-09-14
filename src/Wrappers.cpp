@@ -41,6 +41,7 @@ namespace Resources
 
     Image::~Image()
     {
+        vkDestroyImageView(GetContext()->Device, View, nullptr);
         vkDestroyImage(GetContext()->Device, Img, nullptr);
     }
 
@@ -570,13 +571,18 @@ VkPipelineViewportStateCreateInfo* PipelineProfile::GetViewport()
 
 VkPipelineDepthStencilStateCreateInfo* PipelineProfile::GetDepthStencil()
 {
+    DepthState = {};
+
     DepthState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    DepthState.pNext = nullptr;
     DepthState.minDepthBounds = DepthRange.first;
     DepthState.maxDepthBounds = DepthRange.second;
     DepthState.stencilTestEnable = bStencilTesting;
     DepthState.depthTestEnable = bDepthTesting;
     DepthState.depthWriteEnable = VK_TRUE;
     DepthState.depthCompareOp = DepthCompareOp;
+    DepthState.back = {};
+    DepthState.front = {};
 
     return &DepthState;
 }

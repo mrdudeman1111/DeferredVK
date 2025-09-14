@@ -8,7 +8,9 @@
 #include <stdexcept>
 
 #define MAX_STATIC_SCENE_SIZE 10000
-#define MAX_DYNAMIC_SCENE_SIZE 5000 
+#define MAX_DYNAMIC_SCENE_SIZE 5000
+
+typedef uint32_t PointLight;
 
 //! Pipeline stage in a renderpass.
 /*!
@@ -74,7 +76,7 @@ private:
     glm::vec2 PrevMouse;
 };
 
-/*! Abstracts framebuffer creation by creating all images, views, and framebuffers from basic descriptions of the attachments provided by the user. */
+/*! Helper structure for The renderer. Abstracts framebuffer creation by creating all images, views, and framebuffers from basic descriptions of the attachments provided by the user. */
 class FrameBufferChain
 {
 public:
@@ -96,10 +98,26 @@ public:
     SceneRenderer();
     ~SceneRenderer();
 
+    /*! \brief Create a graphics pipeline with the specified configuration information
+     *
+     *  Creates a graphics pipeline named (PipeName) with (VtxPath) as the vertex shader and (FragPath) as the fragment shader. The pipeline uses the framebuffer attachments specified in subpass[(SubpassIdx)] of the scene render pass. The output of this graphics pipeline to each attachment in the framebuffer are added/mixed/written according to the corresponding (BlendAttachments[i] where 'i' is the attachment index). There should always be one more BlendAttachment than calls to AddFrameBufferAttachment, since there is an implicit frame buffer attachment, that being the swapchain image. The pipeline also uses (DescriptorCount) descriptors specified in the (pDescriptors) array. So any descriptor with the same Layout in (pDescriptors) at index i can be bound at location i during a draw using this pipeline. Scene wide information like rasterization method, multisample count, resolution and more are all provided through (pProfile).
+     *
+     * @param PipeName The name of this pipeline.
+     * @param SubpassIdx The index of the subpass (in the Scene render pass) that this pipeline will operate in.
+     * @param VtxPath The path to the vertex shader to use for this pipeline.
+     * @param FragPath The path to the fragment shader to use for this pipeline.
+     * @param BlendAttCount The number of elements in the BlendAttachments array.
+     * @param BlendAttachment The Array of rules to use for blending the output of this pipeline to each framebuffer attachment
+     * @param DescriptorCount The number of elements in the pDescriptors array.
+     * @param pDescriptors An Array of DescriptorLayouts specifying the layout of each descriptor this pipeline takes.
+     * @param pProfile The pipeline profile to use for this pipeline (stuff like resolution, sample count, etc.)
+     */
     Pipeline* CreatePipeline(std::string PipeName, uint32_t SubpassIdx, const char* VtxPath, const char* FragPath, uint32_t BlendAttCount = 0, VkPipelineColorBlendAttachmentState* BlendAttachments = nullptr, uint32_t DescriptorCount = 0, Resources::DescriptorLayout* pDescriptors = nullptr, PipelineProfile* pProfile = nullptr);
 
     void AddMesh(pbrMesh* Mesh, std::string PipeName);
     Drawable* CreateDrawable(pbrMesh* pMesh, bool bDynamic);
+    
+    PointLight CreatePointLight(glm::vec3 Pos, glm::vec3 LightCol);
 
     inline void AddFrameBufferAttachment(VkFormat Format, VkImageLayout AttachmentLayout, VkImageUsageFlagBits Usage)
     {
@@ -141,7 +159,7 @@ public:
     /* Descriptors */
         std::unordered_map<VkDescriptorSetLayout, Allocators::DescriptorPool> DescriptorHeaps; //! > map assigns each type of descriptorsetlayout in the scene a corresponding descriptor pool
 
-    /* Command Heaps */
+    /* Command Heaps/Allocators */
         Allocators::CommandPool GraphicsHeap; //! > Graphics command buffer allocator
         Allocators::CommandPool ComputeHeap; //! > Compute command buffer allocator
         Allocators::CommandPool TransferHeap; //! > Transfer command buffer allocator
@@ -150,94 +168,55 @@ public:
         PipelineProfile SceneProfile; //! > Scene-wide pipeline profile.
         Camera* SceneCam; //! > Scene camera structure.
 
-    Resources::DescriptorSet SceneSet;
-
 private:
+    /* Scene Objects */
+        std::vector<PointLight> SceneLights;
+    
     /* Scene Pass */
         struct
         {
             VkSemaphore DrawGenSem;
             Resources::Fence* pFrameFence;
-        } SceneSync;
+        } SceneSync; //! > Contains the semaphore and fence used to synchronise draw call generation.
 
-        std::vector<VkSemaphore> RenderSemaphores;
+        std::vector<VkSemaphore> RenderSemaphores; //! > Contains all the semaphores needed for rendering. The size of the vector is equal to the number of framebuffers
 
         RenderPass ScenePass; //! > Scene wide renderpass. Passes can be added to the scene through AddPass().
 
     /* FrameBuffers */
         FrameBufferChain FrameChain; //! > Scene framebuffer chain. Attachments can be added through AddFrameBufferAttachment()
 
+    /* Scene Descriptor layout can be found in Draw.comp */
+        Resources::DescriptorLayout* pSceneDescriptorLayout;
+        Resources::DescriptorSet* pSceneDescriptorSet;
 
-    /* Scene Descriptor contains scene info
+        /* SSBO for static scene objects */
+            Resources::Buffer StaticSceneBuffer; //! > Static scene object positions (10000).
+            uint32_t StaticIter = 0; //! > Index Iterator
 
-        binding 0:
+        /* SSBO for dynamic scene objects */
+            Resources::Buffer DynamicSceneBuffer; //! > Dynamic scene object positions (5000).
+            uint32_t DynamicIter = 0; //! > Index Iterator
+    
+        /* SSBO for scene lights */
+            Resources::Buffer SceneLightBuffer; //! > Contains all the lights in the current scene.
+            uint32_t LightIter = 0; //! > Index Iterator
 
-         Contain information about the camera, such as the WVP matrices and the frustum planes for frustum culling.
+    /* Drawing/Rendering */
+        std::unordered_map<std::string, PipeStage*> PipeStages; //! > Pipeline stages (Pipeline+Drawables) mapped to string names (the names of the pipeline.)
 
-            layout(std140, set = 0, binding = 0) uniform Camerastructure
-            {
-                mat4 View;
-                mat4 Proj;
-                mat4 ProjView;
-                vec4 Planes[6];
-            } Camera;
+        /***************** TODO ******************/
+        //  Change pass stages "PipeStages" variable to an array of names that can be used to index into renderer's "PipeStages" map.
+        /*****************************************/
+        std::vector<PassStage> PassStages; //! > Pipeline stages sorted by subpass.
 
-        binding 1:
+        ComputePipeline DrawPipeline; //! > The pipeline used by the renderer to perform culling and generate indirect draw commands
 
-         Contains static mesh instances in the scene
+    /* Command buffers */
+        Resources::CommandBuffer* pCmdOpsBuffer = nullptr; //! > General purpose spare command buffer.
+        Resources::CommandBuffer* pCmdComputeBuffer = nullptr; //! > Compute render buffer (mostly used for command generation).
 
-            layout(std140, set = 0, binding = 1) buffer StaticSceneStruct
-            {
-                mat4 Transforms[];
-                uint IDs[];
-            } StaticSceneBuffer;
-
-        binding 2:
-
-         Contains dynamic mesh instances in the scene
-
-            layout(std140, set = 0, binding = 1) buffer DynamicSceneStruct
-            {
-                mat4 Transforms[];
-                uint IDs[];
-            } DynamicSceneBuffer;
-
-        binding 3:
-
-         Contains mesh culling volumes (OBBs). Should be transformed by mesh transforms to get correct position/orientation/scale
-
-            layout(std140, set = 0, binding = 3) buffer readonly globInstBounds
-            {
-                struct CullBounds
-                {
-                    float Width;
-                    float Height;
-                } MeshCullBounds[];
-            } Bounds;
-    */
-
-    Resources::DescriptorLayout* pSceneDescriptorLayout;
-    Resources::DescriptorSet* pSceneDescriptorSet;
-
-    Resources::Buffer StaticSceneBuffer; //! > Static scene object positions (10000).
-    uint32_t StaticIter = 0; // Index Iterator
-
-    Resources::Buffer DynamicSceneBuffer; //! > Dynamic scene object positions (5000).
-    uint32_t DynamicIter = 0; // Index Iterator
-
-    std::unordered_map<std::string, PipeStage*> PipeStages; //! > Pipeline stages (Pipeline+Drawables) mapped to string names
-
-    /***************** TODO ******************/
-    //  Change pass stages "PipeStages" variable to an array of names that can be used to index into renderer's "PipeStages" map.
-    /*****************************************/
-    std::vector<PassStage> PassStages; //! > Pipeline stages sorted by subpass.
-
-    ComputePipeline DrawPipeline; //! > The pipeline used by the renderer to perform culling and generate indirect draw commands
-
-    Resources::CommandBuffer* pCmdOpsBuffer = nullptr; //! > General purpose spare command buffer.
-    Resources::CommandBuffer* pCmdComputeBuffer = nullptr; //! > Compute render buffer (mostly used for command generation).
-public: // todo: remove
-    Resources::CommandBuffer* pCmdRenderBuffer = nullptr; //! > Render buffer.
+        Resources::CommandBuffer* pCmdRenderBuffer = nullptr; //! > Render buffer.
 };
 
 class AssetManager
@@ -248,6 +227,15 @@ class AssetManager
         *   Uses tinygltf to load a gltf file and registers the mesh with the specified pipeline.
         */
         pbrMesh** CreateMesh(std::string Path, std::string PipeName, uint32_t& MeshCount);
+    
+        /*! \brief Loads an image from a file.
+        *
+        *   Uses OpenImageIO to open and read a file from the filesystem into GPU memory.
+        *
+        *   @param ImageFile The path to the image file to load.
+        *   @return The image as an Resources::Image object.
+        */
+        Resources::Image* LoadImage(std::string ImageFile, VkSampleCountFlagBits SampleCount = VK_SAMPLE_COUNT_1_BIT);
 
         SceneRenderer* pRenderer;
 };

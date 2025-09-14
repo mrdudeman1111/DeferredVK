@@ -1,12 +1,27 @@
 #pragma once
 
 #include "Framework.hpp"
+#include "Texture.hpp"
+
 #include "glm/gtc/matrix_transform.hpp"
 
 // if this is changed, change the define with the same name in Shaders/Draw.comp
 #define MAX_RENDERABLE_INSTANCES 600
 
 // seperate drawables and meshes.
+
+class pbrMaterial
+{
+public:
+    static Resources::DescriptorLayout MatLayout;
+    
+    pbrMaterial();
+
+    Texture::Texture2D Albedo;
+    Texture::Texture2D Metallic;
+    Texture::Texture2D Roughness;
+    Texture::Texture2D Normal;
+};
 
 /*! Vertex structure containing all needed attributes */
 struct Vertex
@@ -46,7 +61,7 @@ public:
     Instanced();
     ~Instanced();
 
-    static Resources::DescriptorLayout* pMeshPassLayout;
+    static Resources::DescriptorLayout* pMeshPassLayout; // This should never be changed, this is the layout for a buffer that handles proper indexing and instancing with the renderer. (i.e. It should not change stride, size, or offsets).
 
     virtual void GenDraws(VkCommandBuffer* pCmdBuffer, VkPipelineLayout Layout) = 0;
     virtual void DrawInstances(VkCommandBuffer* pCmdBuffer, VkPipelineLayout Layout) = 0;
@@ -62,28 +77,51 @@ protected:
     Resources::Buffer MeshPassBuffer; //! > The Mesh pass buffer. This buffer contains (in this order) a VkDrawIndexedIndirectCommand, two uint32(s) a mesh bound index for frustum culling and an instance count indicating the number of instances managed by the mesh, and finally an array of MAX_RENDERABLE_INSTANCES uint32(s) representing the instances (as indices in the Scene buffer) to render. And finally, a list of all instance indices, this is used to map render indices to scene indices (instance 0,1,2 is mapped to an object index in the scene like 24,58,91) In debug builds, this will exist on host visible memory.
 };
 
-/*! Contains physical description of a mesh */
-class pbrMesh : public Instanced
+class Mesh : public Instanced
 {
 public:
-    Resources::DescriptorLayout MeshLayout;
-    Resources::DescriptorSet MeshSet;
+    CullingBox CullBound;
+    
+    Mesh() : Instanced(), MeshBuffer("Mesh Buffer") {};
+    ~Mesh()
+    {
+#ifdef DEBUG_MODE
+        std::cout << "Destroying pbrMesh\n";
+#endif
+        
+        delete[] pVertices;
+        pVertices = nullptr;
+        VertCount = 0;
+        delete[] pIndices;
+        pIndices = nullptr;
+        IndexCount = 0;
+    }
+    
+    uint32_t VertCount; //! The number of elements in (and the size of) the pVertices array.
+    Vertex* pVertices; //! A dynamic array (exists on the heap, as in the CPU side, not the GPU side) Containing the Vertices. Any changes to this array should be followed at some point by a call to Mesh::Update();
+    
+    uint32_t IndexCount;
+    uint32_t* pIndices;
 
+    uint32_t IndexOffset; //! The offset in bytes of the Indices in the mesh buffer, used during draw calls.
+
+    Resources::Buffer MeshBuffer; //! Contains all the mesh's vertices and indices on the GPU for use during rendering.
+
+    std::string Name;
+};
+
+/*! Contains physical description of a mesh */
+class pbrMesh : public Mesh
+{
+public:
     CullingBox CullBound;
 
     pbrMesh();
     ~pbrMesh()
     {
         #ifdef DEBUG_MODE
-            std::cout << "Destroying pbrMesh\n";
+            std::cout << "Destroying a pbrMesh named \"" << Name << "\"\n";
         #endif
-
-        delete[] pVertices;
-        pVertices = nullptr;
-        VertCount = 0;
-        delete[] pIndices;
-        pIndices = nullptr;
-        VertCount = 0;
     }
 
     void Bake();
@@ -97,30 +135,9 @@ public:
 
         void AddInstance(uint32_t InstanceIndex);
 
-    #ifdef DEBUG_MODE
-    std::vector<Vertex> Vertices; //! > Only exists in debug mode, vector of vertices.
-    #endif
-
-    Vertex* pVertices; //! > Raw pointer to the vertices.
-    uint32_t VertCount; //! > Number of vertices in pVertices.
-
-    #ifdef DEBUG_MODE
-    std::vector<uint32_t> Indices; //! > Only exists in debug mode, vector containing all mesh indices.
-    #endif
-
-    uint32_t* pIndices; //! > Raw pointer to the indices.
-    uint32_t IndexCount; //! > Number of indices in pIndices (and Indices in debug mode).
-
-    /*! \brief Byte offset of the index array in the mesh buffer. */
-    uint32_t IndexOffset; //! > The byte offset from the beginning of the mesh buffer at which our indices exist.
-    Resources::Buffer MeshBuffer; //! > The Vertex|Index Buffer representing our mesh. Exists on Device local memory in release and host visible in debug.
-
-    std::string Name;
-
 private:
 
-    Resources::Image Albedo = {};
-    Resources::Image Normal = {};
+    pbrMaterial* pMat;
 };
 
 /*! Contains information needed for a mesh instance to be rendered. */

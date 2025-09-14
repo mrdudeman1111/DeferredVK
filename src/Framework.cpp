@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "OpenImageIO/imageio.h"
+
 Window* gWindow; // The Framework's global window state.
 
 Context* gContext; // The framework's global context.
@@ -768,6 +770,10 @@ void Allocate(Resources::Image& Image, bool bVisible)
     return;
 }
 
+void Free(Resources::Allocation* pAlloc)
+{
+}
+
 VkResult CreateBuffer(Resources::Buffer& Buffer, size_t Size, VkBufferUsageFlags Usage)
 {
     VkResult Ret;
@@ -783,28 +789,12 @@ VkResult CreateBuffer(Resources::Buffer& Buffer, size_t Size, VkBufferUsageFlags
     return Ret;
 }
 
-VkResult CreateImage(Resources::Image& Image, VkFormat Format, VkExtent2D Size, VkImageUsageFlags Usage, VkSampleCountFlagBits SampleCount)
-{
-    VkResult Ret;
-
-    VkImageCreateInfo ImageCI{};
-    ImageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ImageCI.usage = Usage;
-    ImageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    ImageCI.extent = {Size.width, Size.height, 1};
-    ImageCI.format = Format;
-    ImageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ImageCI.arrayLayers = 1;
-    ImageCI.imageType = VK_IMAGE_TYPE_2D;
-    ImageCI.mipLevels = 0;
-    ImageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    ImageCI.samples = SampleCount;
-
-    Ret = vkCreateImage(gContext->Device, &ImageCI, nullptr, &Image.Img);
-
-    return Ret;
-}
-
+/*! \brief Helper function for CreateImage \ Create view
+    @param View The Image view to output to.
+    @param Image The image the output view wraps.
+    @param Format The format of the view
+    @param Aspect The subresource aspect
+*/
 VkResult CreateView(VkImageView& View, VkImage& Image, VkFormat Format, VkImageAspectFlagBits Aspect)
 {
     VkResult Ret;
@@ -828,6 +818,30 @@ VkResult CreateView(VkImageView& View, VkImage& Image, VkFormat Format, VkImageA
 
     return Ret;
 }
+VkResult CreateImage(Resources::Image& Image, VkFormat Format, VkExtent2D Size, VkImageUsageFlags Usage, VkSampleCountFlagBits SampleCount)
+{
+    VkResult Ret;
+
+    VkImageCreateInfo ImageCI{};
+    ImageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ImageCI.usage = Usage;
+    ImageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ImageCI.extent = {Size.width, Size.height, 1};
+    ImageCI.format = Format;
+    ImageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ImageCI.arrayLayers = 1;
+    ImageCI.imageType = VK_IMAGE_TYPE_2D;
+    ImageCI.mipLevels = 0;
+    ImageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ImageCI.samples = SampleCount;
+
+    Ret = vkCreateImage(gContext->Device, &ImageCI, nullptr, &Image.Img);
+    
+    CreateView(Image.View, Image.Img, Format);
+
+    return Ret;
+}
+
 
 void Map(Resources::Buffer* pBuffer)
 {
